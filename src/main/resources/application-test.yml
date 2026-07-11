@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: jdbc:tc:postgresql:16-alpine:///order_state_machine_test
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+  kafka:
+    consumer:
+      group-id: order-state-machine-test-group
+      auto-offset-reset: earliest
+
+logging:
+  level:
+    root: WARN
+    com.example.statemachine: DEBUG

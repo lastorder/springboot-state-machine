@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: order-state-machine
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/order_state_machine
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    open-in-view: false
+
+  kafka:
+    bootstrap-servers: localhost:9094
+    consumer:
+      group-id: order-state-machine-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.example.statemachine.kafka.dto"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+    listener:
+      ack-mode: manual
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+spring.statemachine:
+  jpa:
+    enabled: true
+
+logging:
+  level:
+    com.example.statemachine: DEBUG
+    org.springframework.statemachine: DEBUG
+    org.springframework.kafka: INFO
