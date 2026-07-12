@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>订单状态机设计文档</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        h2 {
+            color: #2980b9;
+            margin-top: 40px;
+            margin-bottom: 20px;
+            padding-left: 10px;
+            border-left: 4px solid #3498db;
+        }
+        
+        h3 {
+            color: #34495e;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+        
+        p {
+            margin-bottom: 15px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #3498db;
+            color: white;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+        
+        .mermaid {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+        
+        .code-block {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        
+        .highlight {
+            background: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .section {
+            margin-bottom: 40px;
+        }
+        
+        ul, ol {
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+        
+        li {
+            margin-bottom: 8px;
+        }
+        
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .event-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        
+        .tag-kafka {
+            background: #9b59b6;
+            color: white;
+        }
+        
+        .tag-http {
+            background: #e74c3c;
+            color: white;
+        }
+        
+        .tag-auto {
+            background: #27ae60;
+            color: white;
+        }
+        
+        .fork-join-box {
+            background: #e8f4fd;
+            border: 2px solid #3498db;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 订单状态机设计文档 (Fork/Join 并行验证版)</h1>
+        
+        <div class="section">
+            <h2>1. 状态机总览</h2>
+            <p>本设计使用 Fork/Join 模式实现库存检查和报价的并行验证，提高订单处理效率。</p>
+            
+            <div class="highlight">
+                <strong>核心特性：</strong>
+                <ul>
+                    <li>并行验证：库存检查和报价同时进行</li>
+                    <li>Fork/Join 模式：两个验证分支并行执行，都成功后才进入下一阶段</li>
+                    <li>手动重试：验证失败后可手动触发重试（最多3次）</li>
+                    <li>超时控制：验证超时自动取消订单</li>
+                </ul>
+            </div>
+            
+            <h3>1.1 完整状态流转图</h3>
+            <div class="mermaid">
+stateDiagram-v2
+    direction TB
+    
+    [*] --> CREATED: 创建订单
+    
+    state "Fork/Join 并行验证" as parallel_validation {
+        state "PENDING_VALIDATION<br/>(Fork State)" as fork_state
+        state "INVENTORY_CHECK<br/>(库存检查)" as inv_check
+        state "PRICING_CHECK<br/>(报价检查)" as price_check
+        
+        fork_state --> inv_check
+        fork_state --> price_check
+        
+        inv_check --> [*] : INVENTORY_SUCCESS
+        price_check --> [*] : PRICING_SUCCESS
+    }
+    
+    CREATED --> fork_state: SUBMIT_VALIDATION<br/>触发并行验证
+    CREATED --> CANCELLED: CANCEL<br/>取消订单
+    
+    state "PENDING_CONFIRMATION<br/>(Join State)" as pending_confirm
+    
+    parallel_validation --> pending_confirm: 两个分支都成功
+    
+    state validation_failed <<choice>>
+    parallel_validation --> validation_failed
+    validation_failed --> CANCELLED: INVENTORY_FAILED<br/>库存失败
+    validation_failed --> CANCELLED: PRICING_FAILED<br/>报价失败
+    validation_failed --> CANCELLED: VALIDATION_TIMEOUT<br/>验证超时
+    validation_failed --> CREATED: RETRY_VALIDATION<br/>重试验证
+    
+    state user_decision <<choice>>
+    pending_confirm --> user_decision
+    user_decision --> PENDING_PAYMENT: USER_CONFIRM<br/>用户确认
+    user_decision --> REJECTED: USER_REJECT<br/>用户拒绝
+    user_decision --> CREATED: MODIFY_ORDER<br/>用户修改订单
+    
+    PENDING_PAYMENT --> PAID: PAY<br/>支付成功
+    PENDING_PAYMENT --> CREATED: MODIFY_ORDER<br/>修改订单
+    PENDING_PAYMENT --> CANCELLED: CANCEL
+    
+    PAID --> PENDING_SHIPMENT: CONFIRM_PAYMENT<br/>支付确认
+    PAID --> REFUNDED: REFUND<br/>退款
+    
+    PENDING_SHIPMENT --> SHIPPED: SHIP<br/>发货
+    PENDING_SHIPMENT --> CANCELLED: CANCEL
+    
+    SHIPPED --> DELIVERED: DELIVER<br/>送达
+    
+    DELIVERED --> REFUNDED: REFUND<br/>退款
+    
+    note right of CREATED
+        初始状态
+        创建后触发并行验证
+    end note
+    
+    note right of parallel_validation
+        Fork/Join 并行验证:
+        - 库存检查
+        - 报价检查
+        同时进行
+    end note
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>2. Fork/Join 并行验证详解</h2>
+            
+            <div class="fork-join-box">
+                <h3>并行验证流程</h3>
+                <div class="mermaid">
+flowchart TB
+    A[订单创建] --> B[SUBMIT_VALIDATION 事件]
+    B --> C[Fork: PENDING_VALIDATION]
+    
+    C --> D[INVENTORY_CHECK 分支]
+    C --> E[PRICING_CHECK 分支]
+    
+    D --> D1[发送 inventory.check.request]
+    D1 --> D2{等待 Kafka 响应}
+    D2 -->|成功| D3[INVENTORY_SUCCESS]
+    D2 -->|失败| D4[INVENTORY_FAILED]
+    
+    E --> E1[发送 pricing.request]
+    E1 --> E2{等待 Kafka 响应}
+    E2 -->|成功| E3[PRICING_SUCCESS]
+    E2 -->|失败| E4[PRICING_FAILED]
+    
+    D3 --> F[Join: 等待两个分支]
+    E3 --> F
+    
+    F --> G[PENDING_CONFIRMATION]
+    
+    D4 --> H[CANCELLED]
+    E4 --> H
+                </div>
+            </div>
+            
+            <p><strong>验证规则：</strong></p>
+            <ul>
+                <li>库存检查和报价检查同时发送 Kafka 请求</li>
+                <li>两个验证都成功才能进入 PENDING_CONFIRMATION</li>
+                <li>任一验证失败则订单取消</li>
+                <li>验证超时（10分钟）自动取消订单</li>
+                <li>支持手动重试，最多3次</li>
+            </ul>
+        </div>
+        
+        <div class="section">
+            <h2>3. 状态定义</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>状态</th>
+                        <th>名称</th>
+                        <th>说明</th>
+                        <th>允许的操作</th>
+                        <th>类型</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>CREATED</code></td>
+                        <td>已创建</td>
+                        <td>订单刚创建，可触发并行验证</td>
+                        <td>取消、触发验证</td>
+                        <td>初始</td>
+                    </tr>
+                    <tr style="background-color: #e8f4fd;">
+                        <td><code>PENDING_VALIDATION</code></td>
+                        <td>并行验证入口 (Fork)</td>
+                        <td>并行验证的 Fork 状态，同时进入两个子状态</td>
+                        <td>取消、重试</td>
+                        <td>复合</td>
+                    </tr>
+                    <tr style="background-color: #e8f4fd;">
+                        <td><code>INVENTORY_CHECK</code></td>
+                        <td>库存检查中</td>
+                        <td>并行验证分支之一：等待库存服务响应</td>
+                        <td>-</td>
+                        <td>子状态</td>
+                    </tr>
+                    <tr style="background-color: #e8f4fd;">
+                        <td><code>PRICING_CHECK</code></td>
+                        <td>报价检查中</td>
+                        <td>并行验证分支之一：等待报价服务响应</td>
+                        <td>-</td>
+                        <td>子状态</td>
+                    </tr>
+                    <tr>
+                        <td><code>PENDING_CONFIRMATION</code></td>
+                        <td>待用户确认 (Join)</td>
+                        <td>并行验证完成，等待用户确认</td>
+                        <td>确认、拒绝、修改、取消</td>
+                        <td>中间</td>
+                    </tr>
+                    <tr>
+                        <td><code>PENDING_PAYMENT</code></td>
+                        <td>待支付</td>
+                        <td>用户已确认价格，等待支付</td>
+                        <td>支付、修改、取消</td>
+                        <td>中间</td>
+                    </tr>
+                    <tr>
+                        <td><code>PAID</code></td>
+                        <td>已支付</td>
+                        <td>支付完成，等待支付系统确认</td>
+                        <td>退款</td>
+                        <td>中间</td>
+                    </tr>
+                    <tr>
+                        <td><code>PENDING_SHIPMENT</code></td>
+                        <td>待发货</td>
+                        <td>支付已确认，等待仓库发货</td>
+                        <td>取消</td>
+                        <td>中间</td>
+                    </tr>
+                    <tr>
+                        <td><code>SHIPPED</code></td>
+                        <td>已发货</td>
+                        <td>订单已发货，等待物流送达</td>
+                        <td>-</td>
+                        <td>中间</td>
+                    </tr>
+                    <tr style="background-color: #d4edda;">
+                        <td><code>DELIVERED</code></td>
+                        <td>已送达</td>
+                        <td>订单已送达客户，流程正常结束</td>
+                        <td>退款</td>
+                        <td>终态</td>
+                    </tr>
+                    <tr style="background-color: #f8d7da;">
+                        <td><code>CANCELLED</code></td>
+                        <td>已取消</td>
+                        <td>订单已取消（验证失败/超时/用户取消）</td>
+                        <td>-</td>
+                        <td>终态</td>
+                    </tr>
+                    <tr style="background-color: #f8d7da;">
+                        <td><code>REJECTED</code></td>
+                        <td>已拒绝</td>
+                        <td>用户拒绝了订单价格，订单结束</td>
+                        <td>-</td>
+                        <td>终态</td>
+                    </tr>
+                    <tr style="background-color: #fff3cd;">
+                        <td><code>REFUNDED</code></td>
+                        <td>已退款</td>
+                        <td>订单已退款</td>
+                        <td>-</td>
+                        <td>终态</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="section">
+            <h2>4. 事件定义</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>事件</th>
+                        <th>触发方式</th>
+                        <th>源状态</th>
+                        <th>目标状态</th>
+                        <th>Kafka Topic / API</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>SUBMIT_VALIDATION</code></td>
+                        <td><span class="event-tag tag-auto">AUTO</span></td>
+                        <td>CREATED</td>
+                        <td>PENDING_VALIDATION</td>
+                        <td>-</td>
+                        <td>触发 Fork，进入并行验证</td>
+                    </tr>
+                    <tr>
+                        <td><code>INVENTORY_SUCCESS</code></td>
+                        <td><span class="event-tag tag-kafka">Kafka</span></td>
+                        <td>INVENTORY_CHECK</td>
+                        <td>INVENTORY_CHECK</td>
+                        <td>inventory.check.response</td>
+                        <td>库存检查成功（等待 Join）</td>
+                    </tr>
+                    <tr>
+                        <td><code>INVENTORY_FAILED</code></td>
+                        <td><span class="event-tag tag-kafka">Kafka</span></td>
+                        <td>PENDING_VALIDATION</td>
+                        <td>CANCELLED</td>
+                        <td>inventory.check.response</td>
+                        <td>库存检查失败，取消订单</td>
+                    </tr>
+                    <tr>
+                        <td><code>PRICING_SUCCESS</code></td>
+                        <td><span class="event-tag tag-kafka">Kafka</span></td>
+                        <td>PRICING_CHECK</td>
+                        <td>PRICING_CHECK</td>
+                        <td>pricing.response</td>
+                        <td>报价成功（等待 Join）</td>
+                    </tr>
+                    <tr>
+                        <td><code>PRICING_FAILED</code></td>
+                        <td><span class="event-tag tag-kafka">Kafka</span></td>
+                        <td>PENDING_VALIDATION</td>
+                        <td>CANCELLED</td>
+                        <td>pricing.response</td>
+                        <td>报价失败，取消订单</td>
+                    </tr>
+                    <tr>
+                        <td><code>VALIDATION_TIMEOUT</code></td>
+                        <td><span class="event-tag tag-auto">AUTO</span></td>
+                        <td>PENDING_VALIDATION</td>
+                        <td>CANCELLED</td>
+                        <td>-</td>
+                        <td>验证超时（10分钟），取消订单</td>
+                    </tr>
+                    <tr>
+                        <td><code>RETRY_VALIDATION</code></td>
+                        <td><span class="event-tag tag-http">HTTP</span></td>
+                        <td>PENDING_VALIDATION</td>
+                        <td>CREATED</td>
+                        <td>POST /api/orders/{id}/retry-validation</td>
+                        <td>手动重试验证（最多3次）</td>
+                    </tr>
+                    <tr>
+                        <td><code>INVENTORY_MODIFIED</code></td>
+                        <td><span class="event-tag tag-kafka">Kafka</span></td>
+                        <td>PENDING_CONFIRMATION<br/>PENDING_PAYMENT</td>
+                        <td>当前状态/PENDING_CONFIRMATION</td>
+                        <td>inventory.order.modified</td>
+                        <td>库存服务主动修改订单（仅限特定状态）</td>
+                    </tr>
+                    <tr>
+                        <td><code>USER_CONFIRM</code></td>
+                        <td><span class="event-tag tag-http">HTTP</span></td>
+                        <td>PENDING_CONFIRMATION</td>
+                        <td>PENDING_PAYMENT</td>
+                        <td>POST /api/orders/{id}/confirm</td>
+                        <td>用户确认价格</td>
+                    </tr>
+                    <tr>
+                        <td><code>USER_REJECT</code></td>
+                        <td><span class="event-tag tag-http">HTTP</span></td>
+                        <td>PENDING_CONFIRMATION</td>
+                        <td>REJECTED</td>
+                        <td>POST /api/orders/{id}/reject</td>
+                        <td>用户拒绝价格，订单结束</td>
+                    </tr>
+                    <tr>
+                        <td><code>MODIFY_ORDER</code></td>
+                        <td><span class="event-tag tag-http">HTTP</span></td>
+                        <td>PENDING_CONFIRMATION<br/>PENDING_PAYMENT</td>
+                        <td>CREATED</td>
+                        <td>PATCH /api/orders/{id}</td>
+                        <td>用户修改订单，重新验证</td>
+                    </tr>
+                    <tr>
+                        <td><code>PAY</code></td>
+                        <td><span class="event-tag tag-http">HTTP</span></td>
+                        <td>PENDING_PAYMENT</td>
+                        <td>PAID</td>
+                        <td>POST /api/orders/{id}/pay</td>
+                        <td>用户支付</td>
+                    </tr>
+                    <tr>
+                        <td><code>CONFIRM_PAYMENT</code></td>
+                        <td><span class="event-tag tag-kafka">Kafka</span></td>
+                        <td>PAID</td>
+                        <td>PENDING_SHIPMENT</td>
+                        <td>payment.confirmed</td>
+                        <td>支付系统确认</td>
+                    </tr>
+                    <tr>
+                        <td><code>SHIP</code></td>
+                        <td><span class="event-tag tag-kafka">Kafka</span></td>
+                        <td>PENDING_SHIPMENT</td>
+                        <td>SHIPPED</td>
+                        <td>order.shipped</td>
+                        <td>仓库发货</td>
+                    </tr>
+                    <tr>
+                        <td><code>DELIVER</code></td>
+                        <td><span class="event-tag tag-kafka">Kafka</span></td>
+                        <td>SHIPPED</td>
+                        <td>DELIVERED</td>
+                        <td>order.delivered</td>
+                        <td>物流送达</td>
+                    </tr>
+                    <tr>
+                        <td><code>CANCEL</code></td>
+                        <td><span class="event-tag tag-http">HTTP</span></td>
+                        <td>多个状态</td>
+                        <td>CANCELLED</td>
+                        <td>POST /api/orders/{id}/cancel</td>
+                        <td>用户取消订单</td>
+                    </tr>
+                    <tr>
+                        <td><code>REFUND</code></td>
+                        <td><span class="event-tag tag-kafka">Kafka</span></td>
+                        <td>PAID<br/>DELIVERED</td>
+                        <td>REFUNDED</td>
+                        <td>order.refunded</td>
+                        <td>退款</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="section">
+            <h2>5. Kafka Topics</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Topic</th>
+                        <th>方向</th>
+                        <th>消息类型</th>
+                        <th>触发时机</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background-color: #e8f4fd;">
+                        <td><code>inventory.check.request</code></td>
+                        <td>→ 库存服务</td>
+                        <td>InventoryCheckRequest</td>
+                        <td>SUBMIT_VALIDATION (并行发送)</td>
+                        <td>发送库存检查请求</td>
+                    </tr>
+                    <tr style="background-color: #e8f4fd;">
+                        <td><code>inventory.check.response</code></td>
+                        <td>← 库存服务</td>
+                        <td>InventoryCheckResponse</td>
+                        <td>INVENTORY_SUCCESS / INVENTORY_FAILED</td>
+                        <td>库存检查结果</td>
+                    </tr>
+                    <tr style="background-color: #e8f4fd;">
+                        <td><code>inventory.order.modified</code></td>
+                        <td>← 库存服务</td>
+                        <td>InventoryOrderModified</td>
+                        <td>INVENTORY_MODIFIED</td>
+                        <td>库存服务主动修改订单</td>
+                    </tr>
+                    <tr style="background-color: #fef9e7;">
+                        <td><code>pricing.request</code></td>
+                        <td>→ 报价服务</td>
+                        <td>PricingRequest</td>
+                        <td>SUBMIT_VALIDATION (并行发送)</td>
+                        <td>发送报价请求</td>
+                    </tr>
+                    <tr style="background-color: #fef9e7;">
+                        <td><code>pricing.response</code></td>
+                        <td>← 报价服务</td>
+                        <td>PricingResponse</td>
+                        <td>PRICING_SUCCESS / PRICING_FAILED</td>
+                        <td>报价结果</td>
+                    </tr>
+                    <tr style="background-color: #fdecea;">
+                        <td><code>payment.confirmed</code></td>
+                        <td>← 支付服务</td>
+                        <td>PaymentConfirmedEvent</td>
+                        <td>CONFIRM_PAYMENT</td>
+                        <td>支付确认</td>
+                    </tr>
+                    <tr style="background-color: #e8f8f5;">
+                        <td><code>order.shipped</code></td>
+                        <td>← 仓库服务</td>
+                        <td>OrderShippedEvent</td>
+                        <td>SHIP</td>
+                        <td>发货通知</td>
+                    </tr>
+                    <tr style="background-color: #e8f8f5;">
+                        <td><code>order.delivered</code></td>
+                        <td>← 物流服务</td>
+                        <td>OrderDeliveredEvent</td>
+                        <td>DELIVER</td>
+                        <td>送达通知</td>
+                    </tr>
+                    <tr style="background-color: #f5eef8;">
+                        <td><code>order.refunded</code></td>
+                        <td>← 退款服务</td>
+                        <td>OrderRefundedEvent</td>
+                        <td>REFUND</td>
+                        <td>退款通知</td>
+                    </tr>
+                    <tr style="background-color: #f4f6f6;">
+                        <td><code>order.events</code></td>
+                        <td>→ 外部系统</td>
+                        <td>OrderStatusChangeEvent</td>
+                        <td>所有状态变更</td>
+                        <td>订单状态变更事件广播</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="section">
+            <h2>6. REST API</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>方法</th>
+                        <th>路径</th>
+                        <th>说明</th>
+                        <th>触发事件</th>
+                        <th>请求体</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>POST</td>
+                        <td><code>/api/orders</code></td>
+                        <td>创建订单</td>
+                        <td>SUBMIT_VALIDATION (自动)</td>
+                        <td>CreateOrderRequest</td>
+                    </tr>
+                    <tr>
+                        <td>GET</td>
+                        <td><code>/api/orders/{id}</code></td>
+                        <td>获取订单详情</td>
+                        <td>-</td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td>GET</td>
+                        <td><code>/api/orders</code></td>
+                        <td>获取所有订单列表</td>
+                        <td>-</td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td>POST</td>
+                        <td><code>/api/orders/{id}/retry-validation</code></td>
+                        <td>重试验证</td>
+                        <td>RETRY_VALIDATION</td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td>PATCH</td>
+                        <td><code>/api/orders/{id}</code></td>
+                        <td>修改订单（商品/数量）</td>
+                        <td>MODIFY_ORDER</td>
+                        <td>ModifyOrderRequest</td>
+                    </tr>
+                    <tr>
+                        <td>POST</td>
+                        <td><code>/api/orders/{id}/confirm</code></td>
+                        <td>用户确认价格</td>
+                        <td>USER_CONFIRM</td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td>POST</td>
+                        <td><code>/api/orders/{id}/reject</code></td>
+                        <td>用户拒绝价格</td>
+                        <td>USER_REJECT</td>
+                        <td>-</td>
+                    </tr>
+                    <tr>
+                        <td>POST</td>
+                        <td><code>/api/orders/{id}/pay</code></td>
+                        <td>支付订单</td>
+                        <td>PAY</td>
+                        <td>PaymentRequest</td>
+                    </tr>
+                    <tr>
+                        <td>POST</td>
+                        <td><code>/api/orders/{id}/cancel</code></td>
+                        <td>取消订单</td>
+                        <td>CANCEL</td>
+                        <td>-</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="section">
+            <h2>7. 典型场景示例</h2>
+            
+            <h3>7.1 正常完整流程（并行验证）</h3>
+            <div class="mermaid">
+sequenceDiagram
+    participant U as 用户
+    participant O as 订单服务
+    participant I as 库存服务
+    participant P as 报价服务
+    participant K as Kafka
+    
+    U->>O: POST /api/orders 创建订单
+    O->>O: 状态: CREATED
+    O->>O: 触发 SUBMIT_VALIDATION
+    O->>O: 状态: PENDING_VALIDATION (Fork)
+    
+    par 并行验证
+        O->>K: inventory.check.request
+        O->>K: pricing.request
+    end
+    
+    O->>O: 子状态: INVENTORY_CHECK + PRICING_CHECK
+    
+    par 并行响应
+        I->>K: inventory.check.response (成功)
+        K->>O: INVENTORY_SUCCESS
+        P->>K: pricing.response (成功)
+        K->>O: PRICING_SUCCESS
+    end
+    
+    O->>O: Join -> 状态: PENDING_CONFIRMATION
+    
+    U->>O: POST /api/orders/{id}/confirm
+    O->>O: 状态: PENDING_PAYMENT
+    
+    U->>O: POST /api/orders/{id}/pay
+    O->>O: 状态: PAID
+    
+    Note over I,P: 支付系统确认...
+    O->>O: 状态: PENDING_SHIPMENT
+    
+    Note over I,P: 仓库发货...
+    O->>O: 状态: SHIPPED
+    
+    Note over I,P: 物流送达...
+    O->>O: 状态: DELIVERED
+            </div>
+            
+            <h3>7.2 验证失败重试场景</h3>
+            <div class="mermaid">
+sequenceDiagram
+    participant U as 用户
+    participant O as 订单服务
+    participant I as 库存服务
+    participant K as Kafka
+    
+    O->>O: 状态: PENDING_VALIDATION
+    O->>K: inventory.check.request
+    O->>K: pricing.request
+    
+    I->>K: inventory.check.response (失败)
+    K->>O: INVENTORY_FAILED
+    O->>O: 状态: CANCELLED
+    
+    Note over U: 用户决定重试
+    U->>O: POST /api/orders/{id}/retry-validation
+    O->>O: 检查重试次数 < 3
+    O->>O: 重置验证状态
+    O->>O: 状态: CREATED
+    O->>O: 自动触发 SUBMIT_VALIDATION
+    O->>O: 状态: PENDING_VALIDATION
+    O->>K: 重新发送验证请求
+            </div>
+            
+            <h3>7.3 库存服务主动修改场景</h3>
+            <div class="mermaid">
+sequenceDiagram
+    participant I as 库存服务
+    participant K as Kafka
+    participant O as 订单服务
+    participant U as 用户
+    
+    Note over O: 状态: PENDING_CONFIRMATION 或 PENDING_PAYMENT
+    
+    Note over I: 商品A缺货<br/>推荐商品B
+    I->>K: inventory.order.modified<br/>{product: "商品B", quantity: 1}
+    K->>O: INVENTORY_MODIFIED
+    O->>O: 更新订单信息
+    
+    alt 在 PENDING_CONFIRMATION 状态
+        O->>O: 状态保持: PENDING_CONFIRMATION
+    else 在 PENDING_PAYMENT 状态
+        O->>O: 状态变为: PENDING_CONFIRMATION
+    end
+    
+    Note over U: 用户看到修改后的订单
+    
+    alt 用户接受
+        U->>O: POST /api/orders/{id}/confirm
+        O->>O: 状态: PENDING_PAYMENT
+    else 用户拒绝
+        U->>O: POST /api/orders/{id}/reject
+        O->>O: 状态: REJECTED
+    end
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>8. 配置参数</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>参数</th>
+                        <th>默认值</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>order.validation.max-retries</code></td>
+                        <td>3</td>
+                        <td>验证失败后最大重试次数</td>
+                    </tr>
+                    <tr>
+                        <td><code>order.validation.timeout</code></td>
+                        <td>10m</td>
+                        <td>验证超时时间</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="footer">
+            <p>生成时间：2026-07-12 | Spring Boot State Machine 订单管理系统 (Fork/Join 并行验证版)</p>
+        </div>
+    </div>
+    
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            stateDiagram: {
+                useMaxWidth: true
+            },
+            sequence: {
+                useMaxWidth: true,
+                wrap: true
+            },
+            flowchart: {
+                useMaxWidth: true
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,11 +1,13 @@
 package com.example.statemachine.config
 
+import com.example.statemachine.action.InventoryCheckAction
 import com.example.statemachine.action.NotifyAction
+import com.example.statemachine.action.OrderModificationAction
 import com.example.statemachine.action.PaymentAction
+import com.example.statemachine.action.PricingCheckAction
 import com.example.statemachine.action.ShipAction
 import com.example.statemachine.action.SubmitAction
-import com.example.statemachine.domain.OrderEvent
-import com.example.statemachine.domain.OrderStatus
+import com.example.statemachine.action.ValidationSubmitAction
 import com.example.statemachine.guard.PaymentGuard
 import com.example.statemachine.kafka.OrderEventProducer
 import com.example.statemachine.service.StateMachineService
@@ -17,7 +19,6 @@ import org.springframework.kafka.core.KafkaTemplate
 
 @TestConfiguration
 class TestConfig {
-
     @Bean
     @Primary
     fun kafkaTemplate(): KafkaTemplate<String, Any> {
@@ -54,4 +55,31 @@ class TestConfig {
     fun paymentGuard(): PaymentGuard {
         return PaymentGuard(Mockito.mock(com.example.statemachine.repository.OrderRepository::class.java))
     }
+
+    @Bean
+    fun inventoryCheckAction(): InventoryCheckAction {
+        return InventoryCheckAction(
+            Mockito.mock(com.example.statemachine.repository.OrderRepository::class.java),
+            Mockito.mock(OrderEventProducer::class.java),
+        )
+    }
+
+    @Bean
+    fun validationSubmitAction(): ValidationSubmitAction {
+        return ValidationSubmitAction(
+            Mockito.mock(com.example.statemachine.repository.OrderRepository::class.java),
+            Mockito.mock(OrderEventProducer::class.java),
+        )
+    }
+
+    @Bean
+    fun pricingCheckAction(): PricingCheckAction {
+        return PricingCheckAction(
+            Mockito.mock(com.example.statemachine.repository.OrderRepository::class.java),
+            Mockito.mock(OrderEventProducer::class.java),
+        )
+    }
+
+    @Bean
+    fun orderModificationAction(): OrderModificationAction = OrderModificationAction()
 }

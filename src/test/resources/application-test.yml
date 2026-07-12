@@ -1,7 +1,4 @@
 spring:
-  application:
-    name: order-state-machine
-
   datasource:
     url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     username: sa
@@ -53,6 +50,11 @@ spring.statemachine:
     jpa:
       repositories:
         enabled: true
+
+order:
+  validation:
+    timeout-minutes: 10
+    max-retries: 3
 
 logging:
   level:

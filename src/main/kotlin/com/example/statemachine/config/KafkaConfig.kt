@@ -7,6 +7,49 @@ import org.springframework.kafka.config.TopicBuilder
 
 @Configuration
 class KafkaConfig {
+    // Inventory topics
+    @Bean
+    fun inventoryCheckRequestTopic(): NewTopic {
+        return TopicBuilder.name("inventory.check.request")
+            .partitions(3)
+            .replicas(1)
+            .build()
+    }
+
+    @Bean
+    fun inventoryCheckResponseTopic(): NewTopic {
+        return TopicBuilder.name("inventory.check.response")
+            .partitions(3)
+            .replicas(1)
+            .build()
+    }
+
+    @Bean
+    fun inventoryOrderModifiedTopic(): NewTopic {
+        return TopicBuilder.name("inventory.order.modified")
+            .partitions(3)
+            .replicas(1)
+            .build()
+    }
+
+    // Pricing topics
+    @Bean
+    fun pricingRequestTopic(): NewTopic {
+        return TopicBuilder.name("pricing.request")
+            .partitions(3)
+            .replicas(1)
+            .build()
+    }
+
+    @Bean
+    fun pricingResponseTopic(): NewTopic {
+        return TopicBuilder.name("pricing.response")
+            .partitions(3)
+            .replicas(1)
+            .build()
+    }
+
+    // Payment topic
     @Bean
     fun paymentConfirmedTopic(): NewTopic {
         return TopicBuilder.name("payment.confirmed")
@@ -15,6 +58,7 @@ class KafkaConfig {
             .build()
     }
 
+    // Order lifecycle topics
     @Bean
     fun orderShippedTopic(): NewTopic {
         return TopicBuilder.name("order.shipped")
@@ -39,6 +83,7 @@ class KafkaConfig {
             .build()
     }
 
+    // Order events topic
     @Bean
     fun orderEventsTopic(): NewTopic {
         return TopicBuilder.name("order.events")

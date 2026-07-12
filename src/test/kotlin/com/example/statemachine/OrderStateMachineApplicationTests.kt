@@ -13,7 +13,6 @@ import org.springframework.test.context.ActiveProfiles
 @Import(TestConfig::class)
 @ActiveProfiles("test")
 class OrderStateMachineApplicationTests {
-
     @Autowired
     private lateinit var orderRepository: OrderRepository
 

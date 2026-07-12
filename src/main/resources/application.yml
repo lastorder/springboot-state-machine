@@ -48,6 +48,12 @@ spring.statemachine:
   jpa:
     enabled: true
 
+# 订单验证配置
+order:
+  validation:
+    timeout-minutes: 10
+    max-retries: 3
+
 logging:
   level:
     com.example.statemachine: DEBUG
