@@ -1,8 +1,8 @@
 package com.example.statemachine.kafka
 
-import com.example.statemachine.domain.OrderEvent
-import com.example.statemachine.domain.OrderStatus
-import com.example.statemachine.kafka.dto.OrderStatusChangeEvent
+import com.example.statemachine.domain.enums.OrderEvent
+import com.example.statemachine.domain.enums.OrderStatus
+import com.example.statemachine.infrastructure.kafka.dto.OrderStatusChangeEvent
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test

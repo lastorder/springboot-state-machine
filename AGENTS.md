@@ -69,10 +69,12 @@ This is a Spring Boot State Machine demo for order management with Fork/Join par
 - **Domain Layer**: Order entity, OrderStatus enum, OrderEvent enum, ValidationStatus enum
 - **Repository Layer**: JPA repositories
 - **StateMachine Layer**: Fork/Join state machine configuration with persistence
+- **Command Inbox Layer**: Command queuing and serialization for thread-safe state machine access
 - **Service Layer**: Business logic with retry support
 - **Controller Layer**: REST APIs
 - **Kafka Layer**: Event-driven communication
 - **Action Layer**: State machine actions (ValidationSubmitAction, InventoryCheckAction, PricingCheckAction)
+- **Scheduler Layer**: DB-Scheduler for task execution and timeout handling
 
 ## State Machine Flow (Fork/Join Parallel Validation)
 
@@ -123,6 +125,23 @@ order:
   validation:
     max-retries: 3        # Max retry attempts
     timeout: 10m          # Validation timeout
+
+# Command Inbox Configuration
+command-inbox:
+  enabled: true
+  default-retries: 5
+  cleanup:
+    enabled: true
+    retention-days: 30
+
+# DB-Scheduler Configuration
+db-scheduler:
+  enabled: true
+  threads: 5
+  polling-interval: 5s
+  heartbeat-interval: 1m
+  immediate-execution-enabled: true
+  polling-strategy: lock-and-fetch
 ```
 
 ### Kafka Topics
@@ -144,3 +163,45 @@ order:
 - `OrderEventConsumer.kt` - Kafka event consumer
 - `OrderService.kt` - Business logic with validation retry
 - `Order.kt` - Domain entity with validation tracking fields
+
+## Command Inbox Pattern (Thread Safety)
+
+Spring State Machine is not thread-safe. To ensure sequential processing of state transitions for the same order, all state machine events must go through the Command Inbox:
+
+### Architecture
+```
+HTTP/Kafka → CommandInboxService → DB → DB-Scheduler → StateMachineService
+                                        (One Task per Order)
+```
+
+### Key Design
+- **One Task per Order**: DB-Scheduler ensures only one task instance per `task_id` (orderId) can execute at a time
+- **Task Execution**: Task loops through pending commands for an order sequentially
+- **Self-Rescheduling**: After processing a command, Task waits 100ms then checks for more commands
+
+### Key Components
+- `CommandInbox.kt` - Command entity with deduplication, priority, expiration
+- `CommandInboxService.kt` - Submit and manage commands
+- `SchedulerTaskConfig.kt` - OrderStateMachineTask definition
+- `ValidationTimeoutService.kt` - Timeout scheduling
+
+### Command Priority Levels
+- `URGENT (200)`: CANCEL, REFUND, PAYMENT operations
+- `HIGH (100)`: Validation, confirmation operations  
+- `NORMAL (0)`: Standard operations
+
+### Command Status Flow
+```
+PENDING → PROCESSING → COMPLETED
+                    → SKIPPED (state machine rejected)
+                    → EXPIRED
+```
+
+### Execution Guarantee
+1. Each order has exactly one active Task (`task_id = orderId`)
+2. DB-Scheduler uses `SELECT FOR UPDATE` to ensure single-threaded execution per task
+3. Task processes commands in order: `priority DESC, id ASC`
+4. Failed commands are marked SKIPPED, Task continues to next command
+5. Task ends when no more PENDING commands exist
+
+See `doc/adr/001-command-inbox-pattern.md` for full ADR.

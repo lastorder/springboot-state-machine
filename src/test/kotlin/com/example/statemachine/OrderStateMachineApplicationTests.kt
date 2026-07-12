@@ -1,7 +1,7 @@
 package com.example.statemachine
 
 import com.example.statemachine.config.TestConfig
-import com.example.statemachine.repository.OrderRepository
+import com.example.statemachine.domain.repository.OrderRepository
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired

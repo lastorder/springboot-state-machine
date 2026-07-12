@@ -1,0 +1,25 @@
+package com.example.statemachine.domain.enums
+
+enum class OrderEvent {
+    SUBMIT_VALIDATION,
+    INVENTORY_SUCCESS,
+    INVENTORY_FAILED,
+    PRICING_SUCCESS,
+    PRICING_FAILED,
+    VALIDATION_TIMEOUT,
+    RETRY_VALIDATION,
+
+    INVENTORY_MODIFIED,
+
+    USER_CONFIRM,
+    USER_REJECT,
+    MODIFY_ORDER,
+
+    PAY,
+    CONFIRM_PAYMENT,
+    SHIP,
+    DELIVER,
+
+    CANCEL,
+    REFUND,
+}

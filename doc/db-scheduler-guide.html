@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DB-Scheduler 使用指南</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-kotlin.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.8;
+            color: #333;
+            background-color: #f8f9fa;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px 60px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        
+        h1 {
+            color: #1a73e8;
+            border-bottom: 3px solid #1a73e8;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 2.2em;
+        }
+        
+        h2 {
+            color: #1557b0;
+            margin-top: 50px;
+            margin-bottom: 20px;
+            padding-left: 15px;
+            border-left: 4px solid #1a73e8;
+            font-size: 1.6em;
+        }
+        
+        h3 {
+            color: #2d3748;
+            margin-top: 35px;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        h4 {
+            color: #4a5568;
+            margin-top: 25px;
+            margin-bottom: 12px;
+            font-size: 1.1em;
+        }
+        
+        p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+        
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 30px;
+        }
+        
+        li {
+            margin-bottom: 10px;
+        }
+        
+        .highlight {
+            background: linear-gradient(120deg, #e3f2fd 0%, #bbdefb 100%);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        
+        .warning-box {
+            background: #fff3e0;
+            border: 1px solid #ff9800;
+            border-left: 4px solid #ff9800;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .warning-box::before {
+            content: "⚠️ 注意";
+            font-weight: bold;
+            color: #e65100;
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        .info-box {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-left: 4px solid #2196f3;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .info-box::before {
+            content: "💡 提示";
+            font-weight: bold;
+            color: #1565c0;
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        .success-box {
+            background: #e8f5e9;
+            border: 1px solid #4caf50;
+            border-left: 4px solid #4caf50;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .success-box::before {
+            content: "✅ 最佳实践";
+            font-weight: bold;
+            color: #2e7d32;
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        pre {
+            margin: 20px 0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        code {
+            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+            font-size: 0.9em;
+        }
+        
+        pre code {
+            display: block;
+            padding: 20px !important;
+            background: #1e1e1e !important;
+        }
+        
+        .code-title {
+            background: #2d2d2d;
+            color: #abb2bf;
+            padding: 10px 20px;
+            font-size: 0.85em;
+            border-radius: 8px 8px 0 0;
+            font-family: monospace;
+        }
+        
+        .code-title + pre {
+            margin-top: 0;
+            border-radius: 0 0 8px 8px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 25px 0;
+            font-size: 0.95em;
+        }
+        
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border: 1px solid #e2e8f0;
+        }
+        
+        th {
+            background: #f1f5f9;
+            font-weight: 600;
+            color: #1e40af;
+        }
+        
+        tr:nth-child(even) {
+            background: #f8fafc;
+        }
+        
+        tr:hover {
+            background: #e0f2fe;
+        }
+        
+        .mermaid {
+            text-align: center;
+            margin: 30px 0;
+            background: #fafafa;
+            padding: 30px;
+            border-radius: 8px;
+        }
+        
+        .architecture-diagram {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px 30px;
+            border-radius: 12px;
+            margin: 25px 0;
+            font-family: monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+            overflow-x: auto;
+        }
+        
+        .nav {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 250px;
+        }
+        
+        .nav h4 {
+            color: #1a73e8;
+            margin-bottom: 15px;
+            font-size: 1em;
+        }
+        
+        .nav ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .nav li {
+            margin-bottom: 8px;
+        }
+        
+        .nav a {
+            color: #555;
+            text-decoration: none;
+            font-size: 0.9em;
+            transition: color 0.2s;
+        }
+        
+        .nav a:hover {
+            color: #1a73e8;
+        }
+        
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        
+        .feature-card {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #1a73e8;
+        }
+        
+        .feature-card h4 {
+            color: #1a73e8;
+            margin-top: 0;
+        }
+        
+        @media (max-width: 1400px) {
+            .nav {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <h4>目录</h4>
+        <ul>
+            <li><a href="#introduction">简介</a></li>
+            <li><a href="#problems">解决的问题</a></li>
+            <li><a href="#core-concepts">核心概念</a></li>
+            <li><a href="#syntax">语法详解</a></li>
+            <li><a href="#project-usage">项目实战</a></li>
+            <li><a href="#best-practices">最佳实践</a></li>
+        </ul>
+    </nav>
+    
+    <div class="container">
+        <h1>DB-Scheduler 使用指南</h1>
+        
+        <h2 id="introduction">一、简介</h2>
+        
+        <p>
+            <span class="highlight">DB-Scheduler</span> 是一个基于数据库的持久化任务调度框架，由瑞典工程师 Gustav Kärrlsson 开发。
+            它将任务调度信息存储在数据库中，通过乐观锁机制确保任务在分布式环境中的正确执行，
+            是 Spring Boot 应用中实现定时任务和延迟任务的理想选择。
+        </p>
+        
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h4>🎯 持久化存储</h4>
+                <p>任务状态存储在数据库中，应用重启后任务不丢失</p>
+            </div>
+            <div class="feature-card">
+                <h4>🔒 分布式安全</h4>
+                <p>基于数据库锁机制，天然支持集群部署，无重复执行</p>
+            </div>
+            <div class="feature-card">
+                <h4>⏰ 灵活调度</h4>
+                <p>支持一次性任务、周期性任务、延迟任务、Cron 表达式</p>
+            </div>
+            <div class="feature-card">
+                <h4>🛠️ Spring 集成</h4>
+                <p>提供 Spring Boot Starter，开箱即用</p>
+            </div>
+        </div>
+        
+        <h2 id="problems">二、解决的问题</h2>
+        
+        <h3>2.1 为什么需要 DB-Scheduler？</h3>
+        
+        <p>在传统的任务调度方案中，我们面临以下挑战：</p>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>方案</th>
+                    <th>问题</th>
+                    <th>DB-Scheduler 解决</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Timer / ScheduledExecutorService</strong></td>
+                    <td>内存级，重启丢失；无持久化</td>
+                    <td>数据库持久化，重启后继续执行</td>
+                </tr>
+                <tr>
+                    <td><strong>Spring @Scheduled</strong></td>
+                    <td>集群环境下重复执行；无法动态调度</td>
+                    <td>分布式锁机制，支持动态任务</td>
+                </tr>
+                <tr>
+                    <td><strong>Quartz</strong></td>
+                    <td>重量级；配置复杂；数据库表多</td>
+                    <td>轻量级；单表存储；零配置启动</td>
+                </tr>
+                <tr>
+                    <td><strong>Redis 延迟队列</strong></td>
+                    <td>依赖 Redis；需要额外组件</td>
+                    <td>仅依赖数据库；无额外中间件</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h3>2.2 本项目的具体问题</h3>
+        
+        <div class="info-box">
+            <p>
+                <strong>问题背景：</strong>Spring State Machine 不是线程安全的，多个线程同时操作同一个订单的状态机会导致状态混乱。
+                我们需要一种机制确保同一个订单的事件按顺序执行。
+            </p>
+        </div>
+        
+        <h4>核心冲突场景</h4>
+        
+        <div class="architecture-diagram">
+并发场景：
+┌─────────┐     ┌─────────┐     ┌─────────┐
+│ 线程 A   │────▶│ 线程 B   │────▶│ 状态机   │  ❌ 状态混乱！
+│ PAY     │     │ CANCEL  │     │ (并发)   │
+└─────────┘     └─────────┘     └─────────┘
+
+串行化方案：
+┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
+│ HTTP/   │────▶│ Command │────▶│ DB-     │────▶│ 状态机   │
+│ Kafka   │     │ Inbox   │     │Scheduler│     │ (串行)   │
+└─────────┘     └─────────┘     └─────────┘     └─────────┘
+                 (持久化)        (One Task      ✅ 安全！
+                                 Per Order)
+        </div>
+        
+        <h4>DB-Scheduler 的解决方案</h4>
+        
+        <p>通过 <span class="highlight">One Task Per Order</span> 模式，确保每个订单只有一个活跃任务，所有事件排队执行：</p>
+        
+        <ol>
+            <li><strong>任务唯一性</strong>：使用 <code>task_id = orderId</code> 作为任务标识，DB-Scheduler 使用 <code>SELECT FOR UPDATE</code> 确保同一时刻只有一个线程执行该任务</li>
+            <li><strong>串行执行</strong>：任务从 Command Inbox 取出下一个待执行命令，执行完毕后再取下一个</li>
+            <li><strong>自我重调度</strong>：任务执行完一个命令后，检查是否还有待执行命令，有的话重新调度自己</li>
+        </ol>
+        
+        <h2 id="core-concepts">三、核心概念</h2>
+        
+        <h3>3.1 核心组件</h3>
+        
+        <div class="mermaid">
+graph LR
+    A[SchedulerClient] --> B[Task]
+    B --> C[TaskInstance]
+    B --> D[TaskData]
+    B --> E[ExecutionHandler]
+    E --> F[OneTimeTask]
+    E --> G[RecurringTask]
+    F --> H[scheduleIfNotExists]
+    G --> I[fixed delay / cron]
+        </div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>组件</th>
+                    <th>说明</th>
+                    <th>项目中的使用</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Scheduler</strong></td>
+                    <td>调度器引擎，负责扫描和执行任务</td>
+                    <td>Spring Boot Starter 自动配置</td>
+                </tr>
+                <tr>
+                    <td><strong>Task</strong></td>
+                    <td>任务定义，包含任务名称和执行逻辑</td>
+                    <td><code>order-state-machine</code> 任务</td>
+                </tr>
+                <tr>
+                    <td><strong>TaskInstance</strong></td>
+                    <td>任务实例，包含任务 ID 和数据</td>
+                    <td><code>TaskInstance(TASK_NAME, orderId, data)</code></td>
+                </tr>
+                <tr>
+                    <td><strong>TaskData</strong></td>
+                    <td>任务携带的数据（必须可序列化）</td>
+                    <td><code>OrderTaskData(orderId)</code></td>
+                </tr>
+                <tr>
+                    <td><strong>SchedulerClient</strong></td>
+                    <td>客户端 API，用于手动调度任务</td>
+                    <td><code>schedulerClient.scheduleIfNotExists()</code></td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h3>3.2 任务类型</h3>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>类型</th>
+                    <th>说明</th>
+                    <th>使用场景</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>OneTimeTask</strong></td>
+                    <td>一次性任务，执行一次后自动删除</td>
+                    <td>订单状态机任务、超时检查</td>
+                </tr>
+                <tr>
+                    <td><strong>RecurringTask</strong></td>
+                    <td>周期性任务，按固定间隔执行</td>
+                    <td>清理过期命令</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h3>3.3 数据库表结构</h3>
+        
+        <p>DB-Scheduler 只需要一张表：</p>
+        
+        <div class="code-title">schema.sql</div>
+        <pre><code class="language-sql">CREATE TABLE scheduled_tasks (
+    task_name           VARCHAR(100) NOT NULL,
+    task_instance       VARCHAR(100) NOT NULL,
+    task_data           BYTEA,
+    execution_time      TIMESTAMP WITH TIME ZONE NOT NULL,
+    picked              BOOLEAN NOT NULL DEFAULT FALSE,
+    picked_by           VARCHAR(50),
+    last_success        TIMESTAMP WITH TIME ZONE,
+    last_failure        TIMESTAMP WITH TIME ZONE,
+    consecutive_failures INT,
+    last_heartbeat      TIMESTAMP WITH TIME ZONE,
+    version             BIGINT NOT NULL,
+    PRIMARY KEY (task_name, task_instance)
+);</code></pre>
+        
+        <div class="info-box">
+            <p>
+                <strong>关键设计：</strong>
+                主键是 <code>(task_name, task_instance)</code> 组合，这意味着同一个任务名称下，同一个 instance 只能存在一条记录。
+                这正是我们实现 "One Task Per Order" 的基础！
+            </p>
+        </div>
+        
+        <h2 id="syntax">四、语法详解</h2>
+        
+        <h3>4.1 引入依赖</h3>
+        
+        <div class="code-title">build.gradle.kts</div>
+        <pre><code class="language-kotlin">extra["dbSchedulerVersion"] = "16.12.0"
+
+dependencies {
+    implementation("com.github.kagkarlsson:db-scheduler-spring-boot-starter:${property("dbSchedulerVersion")}")
+}</code></pre>
+        
+        <h3>4.2 配置项</h3>
+        
+        <div class="code-title">application.yml</div>
+        <pre><code class="language-yaml">db-scheduler:
+  enabled: true
+  threads: 5                      # 执行线程数
+  polling-interval: 5s            # 扫描间隔
+  heartbeat-interval: 1m          # 心跳间隔（用于检测死锁任务）
+  immediate-execution-enabled: true  # 立即执行模式
+  polling-strategy: lock-and-fetch   # 锁策略：lock-and-fetch / fetch-and-lock</code></pre>
+        
+        <h3>4.3 定义 TaskData</h3>
+        
+        <p>任务数据必须实现 <code>Serializable</code>：</p>
+        
+        <div class="code-title">TaskData.kt</div>
+        <pre><code class="language-kotlin">data class OrderTaskData(
+    val orderId: Long,
+) : Serializable {
+    companion object {
+        private const val serialVersionUID: Long = 1L
+    }
+}</code></pre>
+        
+        <h3>4.4 创建 OneTimeTask</h3>
+        
+        <div class="code-title">OrderStateMachineTaskConfig.kt</div>
+        <pre><code class="language-kotlin">@Configuration
+class OrderStateMachineTaskConfig(
+    private val commandInboxService: CommandInboxService,
+    private val commandInboxRepository: CommandInboxRepository,
+    private val stateMachineService: StateMachineService,
+) {
+    companion object {
+        const val TASK_NAME = "order-state-machine"
+    }
+
+    @Bean
+    fun orderStateMachineTask(): OneTimeTask&lt;OrderTaskData&gt; {
+        return object : OneTimeTask&lt;OrderTaskData&gt;(
+            TASK_NAME,
+            OrderTaskData::class.java,
+            FailureHandler.OnFailureRetryLater(Duration.ofMinutes(1)),
+        ) {
+            override fun executeOnce(
+                taskInstance: TaskInstance&lt;OrderTaskData&gt;,
+                executionContext: ExecutionContext,
+            ) {
+                val orderId = taskInstance.data.orderId
+                
+                // 1. 取出下一个待执行命令
+                val command = commandInboxRepository.findNextPendingCommand(orderId)
+                    ?: return  // 没有待执行命令，任务结束
+                
+                // 2. 执行命令
+                processCommand(command, orderId)
+                
+                // 3. 自我重调度（如果还有待执行命令）
+                scheduleSelfIfHasPendingCommands(orderId)
+            }
+        }
+    }
+}</code></pre>
+        
+        <h3>4.5 创建 RecurringTask</h3>
+        
+        <div class="code-title">ValidationTimeoutTaskConfig.kt</div>
+        <pre><code class="language-kotlin">@Bean
+fun commandCleanupTask(): RecurringTask&lt;Void&gt; =
+    Tasks
+        .recurring("command-cleanup", Schedules.fixedDelay(Duration.ofHours(1)))
+        .execute { _: TaskInstance&lt;Void&gt;, _: ExecutionContext -&gt;
+            log.info("Running command cleanup task")
+            
+            // 清理过期命令
+            val expiredCommands = commandInboxRepository.findExpiredCommands(Instant.now())
+            expiredCommands.forEach { command -&gt;
+                commandInboxRepository.save(command.copy(status = CommandStatus.EXPIRED))
+            }
+            
+            // 删除30天前已完成的命令
+            val cutoffDate = Instant.now().minusSeconds(30 * 24 * 60 * 60L)
+            commandInboxRepository.deleteByStatusAndProcessedAtBefore(
+                CommandStatus.COMPLETED,
+                cutoffDate,
+            )
+        }</code></pre>
+        
+        <h3>4.6 手动调度任务</h3>
+        
+        <div class="code-title">CommandInboxService.kt</div>
+        <pre><code class="language-kotlin">@Service
+class CommandInboxService(
+    private val schedulerClient: SchedulerClient,
+) {
+    fun scheduleOrderTask(orderId: Long) {
+        val taskInstance = TaskInstance&lt;OrderTaskData&gt;(
+            TASK_NAME,
+            orderId.toString(),  // task_instance = orderId，确保唯一性
+            OrderTaskData(orderId),
+        )
+        
+        // 立即调度，如果已存在则忽略
+        schedulerClient.scheduleIfNotExists(taskInstance, Instant.now())
+    }
+}</code></pre>
+        
+        <div class="warning-box">
+            <p>
+                <strong>schedule() vs scheduleIfNotExists()</strong>
+                <br><br>
+                <code>schedule()</code> 会检查是否已存在相同任务，已存在则抛出异常。
+                <br>
+                <code>scheduleIfNotExists()</code> 会检查是否已存在，已存在则静默忽略。
+                <br><br>
+                在 "One Task Per Order" 模式下，推荐使用 <code>scheduleIfNotExists()</code>。
+            </p>
+        </div>
+        
+        <h3>4.7 调度策略</h3>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>方法</th>
+                    <th>说明</th>
+                    <th>示例</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>schedule(task, time)</code></td>
+                    <td>在指定时间执行</td>
+                    <td><code>schedule(task, Instant.now().plusSeconds(60))</code></td>
+                </tr>
+                <tr>
+                    <td><code>scheduleIfNotExists(task, time)</code></td>
+                    <td>如果不存在则调度</td>
+                    <td><code>scheduleIfNotExists(task, Instant.now())</code></td>
+                </tr>
+                <tr>
+                    <td><code>reschedule(task, time)</code></td>
+                    <td>重新调度（更新执行时间）</td>
+                    <td><code>reschedule(task, Instant.now().plusSeconds(30))</code></td>
+                </tr>
+                <tr>
+                    <td><code>cancel(task)</code></td>
+                    <td>取消任务</td>
+                    <td><code>cancel(taskInstance)</code></td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h3>4.8 失败处理</h3>
+        
+        <pre><code class="language-kotlin">FailureHandler.OnFailureRetryLater(Duration.ofMinutes(1))  // 失败后1分钟重试
+FailureHandler.MaxRetries(3)  // 最多重试3次
+FailureHandler.OnFailureRetryLater(Duration.ofMinutes(1),  // 求策略
+    FailureHandler.MaxRetries(5)
+)</code></pre>
+        
+        <h2 id="project-usage">五、项目实战</h2>
+        
+        <h3>5.1 整体架构</h3>
+        
+        <div class="mermaid">
+sequenceDiagram
+    participant Client as HTTP/Kafka
+    participant Inbox as CommandInboxService
+    participant DB as Database
+    participant Scheduler as DB-Scheduler
+    participant SM as StateMachine
+    
+    Client->>Inbox: submitCommand(orderId, event)
+    Inbox->>DB: 保存命令 (PENDING)
+    Inbox->>Scheduler: scheduleIfNotExists(orderId)
+    Note over Scheduler: 同一 orderId<br/>只有一个任务
+    
+    loop 每个命令
+        Scheduler->>DB: SELECT FOR UPDATE
+        Scheduler->>DB: 查找下一个 PENDING 命令
+        Scheduler->>SM: sendEvent(orderId, event)
+        SM-->>Scheduler: success/failure
+        Scheduler->>DB: 更新命令状态
+        Scheduler->>Scheduler: sleep(100ms)
+    end
+    
+    Scheduler->>DB: 检查剩余命令数
+    alt 有剩余命令
+        Scheduler->>Scheduler: 重新调度自己
+    else 无剩余命令
+        Note over Scheduler: 任务结束
+    end
+        </div>
+        
+        <h3>5.2 关键实现细节</h3>
+        
+        <h4>命令优先级排序</h4>
+        
+        <div class="code-title">CommandInboxRepository.kt</div>
+        <pre><code class="language-sql">-- 按 priority DESC, id ASC 排序，确保高优先级先执行
+SELECT * FROM command_inbox 
+WHERE order_id = :orderId 
+  AND status = 'PENDING'
+ORDER BY priority DESC, id ASC
+LIMIT 1</code></pre>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>优先级</th>
+                    <th>值</th>
+                    <th>事件类型</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>URGENT</td>
+                    <td>200</td>
+                    <td>CANCEL, REFUND, PAYMENT 操作</td>
+                </tr>
+                <tr>
+                    <td>HIGH</td>
+                    <td>100</td>
+                    <td>Validation, Confirmation 操作</td>
+                </tr>
+                <tr>
+                    <td>NORMAL</td>
+                    <td>0</td>
+                    <td>标准操作</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h4>自我重调度机制</h4>
+        
+        <div class="code-title">OrderStateMachineTaskConfig.kt</div>
+        <pre><code class="language-kotlin">private fun scheduleSelfIfHasPendingCommands(orderId: Long) {
+    Thread.sleep(NEXT_COMMAND_DELAY_MS)  // 100ms 延迟，避免忙等待
+    
+    val pendingCount = commandInboxRepository.countPendingCommands(orderId)
+    
+    if (pendingCount > 0) {
+        val taskInstance = TaskInstance(TASK_NAME, orderId.toString(), OrderTaskData(orderId))
+        schedulerClient.scheduleIfNotExists(taskInstance, Instant.now())
+        log.debug("Rescheduled task: orderId={}, pendingCount={}", orderId, pendingCount)
+    }
+}</code></pre>
+        
+        <div class="info-box">
+            <p>
+                <strong>为什么需要 100ms 延迟？</strong>
+                <br><br>
+                如果新命令刚写入但事务还未提交，立即查询可能看不到。100ms 延迟给事务提交留出时间。
+            </p>
+        </div>
+        
+        <h3>5.3 验证超时任务</h3>
+        
+        <p>创建订单时，调度一个超时检查任务：</p>
+        
+        <div class="code-title">ValidationTimeoutService.kt</div>
+        <pre><code class="language-kotlin">fun scheduleValidationTimeout(orderId: Long) {
+    val timeoutInstant = Instant.now().plus(timeoutMinutes, ChronoUnit.MINUTES)
+    
+    val taskInstance = TaskInstance(
+        VALIDATION_TIMEOUT_TASK_NAME,
+        orderId.toString(),
+        TimeoutCheckData(orderId, Instant.now().toEpochMilli()),
+    )
+    
+    schedulerClient.scheduleIfNotExists(taskInstance, timeoutInstant)
+}</code></pre>
+        
+        <p>任务执行时检查订单是否仍在验证中：</p>
+        
+        <div class="code-title">ValidationTimeoutTaskConfig.kt</div>
+        <pre><code class="language-kotlin">override fun executeOnce(
+    taskInstance: TaskInstance&lt;TimeoutCheckData&gt;,
+    executionContext: ExecutionContext,
+) {
+    val orderId = taskInstance.data.orderId
+    val order = orderRepository.findById(orderId)
+    
+    // 只有仍在 PENDING_VALIDATION 才触发超时
+    if (order != null && order.status == OrderStatus.PENDING_VALIDATION) {
+        commandInboxService.submitCommand(
+            orderId = orderId,
+            event = OrderEvent.VALIDATION_TIMEOUT,
+            source = CommandSource.SCHEDULED,
+            priority = CommandPriority.HIGH,
+        )
+    }
+}</code></pre>
+        
+        <h2 id="best-practices">六、最佳实践</h2>
+        
+        <h3>6.1 任务粒度设计</h3>
+        
+        <div class="success-box">
+            <p>
+                <strong>粒度越小越好</strong>
+                <br><br>
+                每个任务只做一件事。如果需要多步骤，使用 Command Inbox 拆分成多个命令。
+                <br><br>
+                本项目中，一个任务处理一个订单的多个命令，而不是一个任务处理多个订单。
+            </p>
+        </div>
+        
+        <h3>6.2 幂等性设计</h3>
+        
+        <div class="success-box">
+            <p>
+                任务执行必须是幂等的，因为网络抖动可能导致任务重复执行。
+                <br><br>
+                本项目使用 Command Inbox 的状态字段（PENDING → COMPLETED/SKIPPED）确保幂等性。
+            </p>
+        </div>
+        
+        <h3>6.3 心跳检测</h3>
+        
+        <p>DB-Scheduler 会定期更新 <code>last_heartbeat</code> 字段，如果检测到心跳超时，会认为任务已死锁，重新调度。</p>
+        
+        <div class="code-title">application.yml</div>
+        <pre><code class="language-yaml">db-scheduler:
+  heartbeat-interval: 1m  # 心跳间隔
+  # 如果 last_heartbeat 超过 2 * heartbeat-interval 未更新，认为任务已死</code></pre>
+        
+        <h3>6.4 监控与告警</h3>
+        
+        <p>建议监控以下指标：</p>
+        
+        <ul>
+            <li><strong>任务执行延迟</strong>：<code>execution_time</code> 与当前时间的差距</li>
+            <li><strong>任务失败次数</strong>：<code>consecutive_failures</code></li>
+            <li><strong>死锁任务数量</strong>：长时间未更新心跳的任务</li>
+            <li><strong>待执行任务积压</strong>：<code>WHERE picked = false</code> 的记录数</li>
+        </ul>
+        
+        <h3>6.5 性能优化</h3>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>配置项</th>
+                    <th>建议值</th>
+                    <th>说明</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>threads</code></td>
+                    <td>CPU 核心数</td>
+                    <td>执行线程数，过多会增加锁竞争</td>
+                </tr>
+                <tr>
+                    <td><code>polling-interval</code></td>
+                    <td>5s ~ 10s</td>
+                    <td>扫描间隔，过短增加数据库压力</td>
+                </tr>
+                <tr>
+                    <td><code>immediate-execution-enabled</code></td>
+                    <td>true</td>
+                    <td>新任务立即执行，无需等待扫描周期</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <h3>6.6 与其他方案对比</h3>
+        
+        <div class="mermaid">
+graph TD
+    subgraph "DB-Scheduler"
+        A1[简单易用] --> B1[适合中小规模]
+        A2[数据库持久化] --> B2[无额外依赖]
+        A3[分布式安全] --> B3[集群部署友好]
+    end
+    
+    subgraph "Quartz"
+        C1[功能完善] --> D1[适合大规模]
+        C2[集群支持] --> D2[配置复杂]
+        C3[数据库持久化] --> D3[多表管理]
+    end
+    
+    subgraph "Redis 延迟队列"
+        E1[高性能] --> F1[适合高并发]
+        E2[内存存储] --> F2[依赖 Redis]
+        E3[分布式安全] --> F3[Redis 集群]
+    end</div>
+        
+        <div class="info-box">
+            <p>
+                <strong>选择建议：</strong>
+                <br><br>
+                <strong>DB-Scheduler</strong>：中小规模、需要持久化、不想引入额外中间件
+                <br>
+                <strong>Quartz</strong>：大规模、需要复杂调度策略
+                <br>
+                <strong>Redis</strong>：高性能场景、已有 Redis 基础设施
+            </p>
+        </div>
+        
+        <h2>七、总结</h2>
+        
+        <p>
+            DB-Scheduler 是一个轻量、可靠的持久化任务调度框架，特别适合需要分布式任务协调的 Spring Boot 应用。
+            在本项目中，它通过 <span class="highlight">One Task Per Order</span> 模式解决了 Spring State Machine 的线程安全问题，
+            确保了订单状态变更的可靠性和一致性。
+        </p>
+        
+        <p>
+            核心设计要点：
+        </p>
+        
+        <ol>
+            <li><strong>任务唯一性</strong>：使用 orderId 作为 task_instance，确保每个订单只有一个活跃任务</li>
+            <li><strong>串行执行</strong>：Task 循环处理命令，保证顺序性</li>
+            <li><strong>自我重调度</strong>：处理完一个命令后检查是否有新命令，有则重新调度</li>
+            <li><strong>失败处理</strong>：命令失败标记为 SKIPPED，不影响后续命令执行</li>
+        </ol>
+        
+        <hr style="margin: 40px 0; border: none; border-top: 2px solid #e2e8f0;">
+        
+        <p style="text-align: center; color: #718096; font-size: 0.9em;">
+            文档版本：1.0 | 更新日期：2026-07-12 | 项目：springboot-state-machine
+        </p>
+    </div>
+    
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: { useMaxWidth: true }
+        });
+        Prism.highlightAll();
+    </script>
+</body>
+</html>

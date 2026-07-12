@@ -1,17 +1,19 @@
 package com.example.statemachine.config
 
-import com.example.statemachine.action.InventoryCheckAction
-import com.example.statemachine.action.NotifyAction
-import com.example.statemachine.action.OrderModificationAction
-import com.example.statemachine.action.PaymentAction
-import com.example.statemachine.action.PricingCheckAction
-import com.example.statemachine.action.ShipAction
-import com.example.statemachine.action.SubmitAction
-import com.example.statemachine.action.ValidationSubmitAction
-import com.example.statemachine.guard.PaymentGuard
-import com.example.statemachine.kafka.OrderEventProducer
-import com.example.statemachine.service.StateMachineService
-import org.mockito.Mockito
+import com.example.statemachine.commandinbox.service.CommandInboxService
+import com.example.statemachine.infrastructure.kafka.OrderEventProducer
+import com.example.statemachine.statemachine.action.InventoryCheckAction
+import com.example.statemachine.statemachine.action.NotifyAction
+import com.example.statemachine.statemachine.action.OrderModificationAction
+import com.example.statemachine.statemachine.action.PaymentAction
+import com.example.statemachine.statemachine.action.PricingCheckAction
+import com.example.statemachine.statemachine.action.ShipAction
+import com.example.statemachine.statemachine.action.SubmitAction
+import com.example.statemachine.statemachine.action.ValidationSubmitAction
+import com.example.statemachine.statemachine.guard.PaymentGuard
+import com.example.statemachine.statemachine.service.StateMachineService
+import com.github.kagkarlsson.scheduler.SchedulerClient
+import io.mockk.mockk
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
@@ -21,21 +23,23 @@ import org.springframework.kafka.core.KafkaTemplate
 class TestConfig {
     @Bean
     @Primary
-    fun kafkaTemplate(): KafkaTemplate<String, Any> {
-        return Mockito.mock(KafkaTemplate::class.java) as KafkaTemplate<String, Any>
-    }
+    fun kafkaTemplate(): KafkaTemplate<String, Any> = mockk(relaxed = true)
 
     @Bean
     @Primary
-    fun orderEventProducer(kafkaTemplate: KafkaTemplate<String, Any>): OrderEventProducer {
-        return OrderEventProducer(kafkaTemplate)
-    }
+    fun orderEventProducer(kafkaTemplate: KafkaTemplate<String, Any>): OrderEventProducer = OrderEventProducer(kafkaTemplate)
 
     @Bean
     @Primary
-    fun stateMachineService(): StateMachineService {
-        return Mockito.mock(StateMachineService::class.java)
-    }
+    fun stateMachineService(): StateMachineService = mockk(relaxed = true)
+
+    @Bean
+    @Primary
+    fun commandInboxService(): CommandInboxService = mockk(relaxed = true)
+
+    @Bean
+    @Primary
+    fun schedulerClient(): SchedulerClient = mockk(relaxed = true)
 
     @Bean
     fun submitAction(): SubmitAction = SubmitAction()
@@ -47,38 +51,32 @@ class TestConfig {
     fun shipAction(): ShipAction = ShipAction()
 
     @Bean
-    fun notifyAction(orderEventProducer: OrderEventProducer): NotifyAction {
-        return NotifyAction(orderEventProducer)
-    }
+    fun notifyAction(orderEventProducer: OrderEventProducer): NotifyAction = NotifyAction(orderEventProducer)
 
     @Bean
-    fun paymentGuard(): PaymentGuard {
-        return PaymentGuard(Mockito.mock(com.example.statemachine.repository.OrderRepository::class.java))
-    }
+    fun paymentGuard(): PaymentGuard = PaymentGuard(mockk(relaxed = true))
 
     @Bean
-    fun inventoryCheckAction(): InventoryCheckAction {
-        return InventoryCheckAction(
-            Mockito.mock(com.example.statemachine.repository.OrderRepository::class.java),
-            Mockito.mock(OrderEventProducer::class.java),
+    fun inventoryCheckAction(): InventoryCheckAction =
+        InventoryCheckAction(
+            mockk(relaxed = true),
+            mockk(relaxed = true),
         )
-    }
 
     @Bean
-    fun validationSubmitAction(): ValidationSubmitAction {
-        return ValidationSubmitAction(
-            Mockito.mock(com.example.statemachine.repository.OrderRepository::class.java),
-            Mockito.mock(OrderEventProducer::class.java),
+    fun validationSubmitAction(): ValidationSubmitAction =
+        ValidationSubmitAction(
+            mockk(relaxed = true),
+            mockk(relaxed = true),
+            mockk(relaxed = true),
         )
-    }
 
     @Bean
-    fun pricingCheckAction(): PricingCheckAction {
-        return PricingCheckAction(
-            Mockito.mock(com.example.statemachine.repository.OrderRepository::class.java),
-            Mockito.mock(OrderEventProducer::class.java),
+    fun pricingCheckAction(): PricingCheckAction =
+        PricingCheckAction(
+            mockk(relaxed = true),
+            mockk(relaxed = true),
         )
-    }
 
     @Bean
     fun orderModificationAction(): OrderModificationAction = OrderModificationAction()

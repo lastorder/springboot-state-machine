@@ -17,6 +17,7 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
     open-in-view: false
+    packages-to-scan: com.example.statemachine.infrastructure.persistence.entity
 
   kafka:
     bootstrap-servers: localhost:9094
@@ -53,6 +54,15 @@ order:
   validation:
     timeout-minutes: 10
     max-retries: 3
+
+# DB-Scheduler 配置
+db-scheduler:
+  enabled: true
+  threads: 5
+  polling-interval: 5s
+  heartbeat-interval: 1m
+  immediate-execution-enabled: true
+  polling-strategy: lock-and-fetch
 
 logging:
   level:
