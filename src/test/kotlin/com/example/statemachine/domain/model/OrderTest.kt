@@ -15,13 +15,14 @@ class OrderTest {
     @Test
     @DisplayName("Should update order status")
     fun testUpdateStatus() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.CREATED,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.CREATED,
+            )
 
         order.updateStatus(OrderStatus.PENDING_VALIDATION)
 
@@ -31,13 +32,14 @@ class OrderTest {
     @Test
     @DisplayName("Should start validation")
     fun testStartValidation() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+            )
 
         order.startValidation()
 
@@ -49,13 +51,14 @@ class OrderTest {
     @Test
     @DisplayName("Should mark inventory success")
     fun testMarkInventorySuccess() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+            )
 
         order.markInventorySuccess("INV-123")
 
@@ -68,13 +71,14 @@ class OrderTest {
     @Test
     @DisplayName("Should mark inventory failed")
     fun testMarkInventoryFailed() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+            )
 
         order.markInventoryFailed()
 
@@ -86,13 +90,14 @@ class OrderTest {
     @Test
     @DisplayName("Should mark pricing success")
     fun testMarkPricingSuccess() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+            )
 
         order.markPricingSuccess("PRICE-123", BigDecimal("50.00"))
 
@@ -106,13 +111,14 @@ class OrderTest {
     @Test
     @DisplayName("Should mark pricing failed")
     fun testMarkPricingFailed() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+            )
 
         order.markPricingFailed()
 
@@ -123,15 +129,16 @@ class OrderTest {
     @Test
     @DisplayName("Should check if validation is complete")
     fun testIsValidationComplete() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-            inventoryCheckStatus = ValidationStatus.SUCCESS,
-            pricingCheckStatus = ValidationStatus.SUCCESS,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+                inventoryCheckStatus = ValidationStatus.SUCCESS,
+                pricingCheckStatus = ValidationStatus.SUCCESS,
+            )
 
         assertTrue(order.isValidationComplete())
     }
@@ -139,15 +146,16 @@ class OrderTest {
     @Test
     @DisplayName("Should return false when validation is not complete")
     fun testIsValidationComplete_NotComplete() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-            inventoryCheckStatus = ValidationStatus.SUCCESS,
-            pricingCheckStatus = ValidationStatus.PENDING,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+                inventoryCheckStatus = ValidationStatus.SUCCESS,
+                pricingCheckStatus = ValidationStatus.PENDING,
+            )
 
         assertFalse(order.isValidationComplete())
     }
@@ -155,15 +163,16 @@ class OrderTest {
     @Test
     @DisplayName("Should check if validation is failed")
     fun testIsValidationFailed() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-            inventoryCheckStatus = ValidationStatus.FAILED,
-            pricingCheckStatus = ValidationStatus.PENDING,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+                inventoryCheckStatus = ValidationStatus.FAILED,
+                pricingCheckStatus = ValidationStatus.PENDING,
+            )
 
         assertTrue(order.isValidationFailed())
     }
@@ -171,15 +180,16 @@ class OrderTest {
     @Test
     @DisplayName("Should return false when validation is not failed")
     fun testIsValidationFailed_NotFailed() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-            inventoryCheckStatus = ValidationStatus.SUCCESS,
-            pricingCheckStatus = ValidationStatus.SUCCESS,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+                inventoryCheckStatus = ValidationStatus.SUCCESS,
+                pricingCheckStatus = ValidationStatus.SUCCESS,
+            )
 
         assertFalse(order.isValidationFailed())
     }
@@ -187,14 +197,15 @@ class OrderTest {
     @Test
     @DisplayName("Should increment retry count")
     fun testIncrementRetryCount() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-            validationRetryCount = 0,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+                validationRetryCount = 0,
+            )
 
         order.incrementRetryCount()
 
@@ -204,19 +215,20 @@ class OrderTest {
     @Test
     @DisplayName("Should reset validation")
     fun testResetValidation() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-            inventoryCheckStatus = ValidationStatus.SUCCESS,
-            pricingCheckStatus = ValidationStatus.SUCCESS,
-            inventoryReference = "INV-123",
-            pricingReference = "PRICE-123",
-            unitPrice = BigDecimal("50.00"),
-            inventoryStatus = InventoryStatus.CONFIRMED,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+                inventoryCheckStatus = ValidationStatus.SUCCESS,
+                pricingCheckStatus = ValidationStatus.SUCCESS,
+                inventoryReference = "INV-123",
+                pricingReference = "PRICE-123",
+                unitPrice = BigDecimal("50.00"),
+                inventoryStatus = InventoryStatus.CONFIRMED,
+            )
 
         order.resetValidation()
 
@@ -234,15 +246,16 @@ class OrderTest {
     @Test
     @DisplayName("Should update for modification")
     fun testUpdateForModification() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_CONFIRMATION,
-            inventoryCheckStatus = ValidationStatus.SUCCESS,
-            pricingCheckStatus = ValidationStatus.SUCCESS,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_CONFIRMATION,
+                inventoryCheckStatus = ValidationStatus.SUCCESS,
+                pricingCheckStatus = ValidationStatus.SUCCESS,
+            )
 
         order.updateForModification("New Product", 10, "Customer request")
 
@@ -256,13 +269,14 @@ class OrderTest {
     @Test
     @DisplayName("Should update for modification with null values")
     fun testUpdateForModification_NullValues() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_CONFIRMATION,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_CONFIRMATION,
+            )
 
         order.updateForModification(null, null, null)
 
@@ -273,13 +287,14 @@ class OrderTest {
     @Test
     @DisplayName("Should confirm price")
     fun testConfirmPrice() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("250.00"),
-            status = OrderStatus.PENDING_PAYMENT,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("250.00"),
+                status = OrderStatus.PENDING_PAYMENT,
+            )
 
         order.confirmPrice()
 
@@ -289,13 +304,14 @@ class OrderTest {
     @Test
     @DisplayName("Should mark pricing success with null unit price")
     fun testMarkPricingSuccess_NullUnitPrice() {
-        val order = Order(
-            id = 1L,
-            product = "Test Product",
-            quantity = 5,
-            amount = BigDecimal("100.00"),
-            status = OrderStatus.PENDING_VALIDATION,
-        )
+        val order =
+            Order(
+                id = 1L,
+                product = "Test Product",
+                quantity = 5,
+                amount = BigDecimal("100.00"),
+                status = OrderStatus.PENDING_VALIDATION,
+            )
 
         order.markPricingSuccess("PRICE-123", null)
 

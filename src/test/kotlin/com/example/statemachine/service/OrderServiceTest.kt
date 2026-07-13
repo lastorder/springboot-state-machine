@@ -2,10 +2,10 @@ package com.example.statemachine.service
 
 import com.example.statemachine.commandinbox.domain.CommandStatus
 import com.example.statemachine.commandinbox.dto.CommandSubmitResult
-import com.example.statemachine.commandinbox.service.CommandInboxService
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.model.Order
 import com.example.statemachine.domain.repository.OrderRepository
+import com.example.statemachine.order.service.OrderCommandService
 import com.example.statemachine.order.service.OrderService
 import com.example.statemachine.presentation.dto.CreateOrderRequest
 import io.mockk.every
@@ -22,14 +22,14 @@ import java.math.BigDecimal
 
 class OrderServiceTest {
     private lateinit var orderRepository: OrderRepository
-    private lateinit var commandInboxService: CommandInboxService
+    private lateinit var orderCommandService: OrderCommandService
     private lateinit var orderService: OrderService
 
     @BeforeEach
     fun setUp() {
         orderRepository = mockk()
-        commandInboxService = mockk(relaxed = true)
-        orderService = OrderService(orderRepository, commandInboxService, maxRetries = 3)
+        orderCommandService = mockk(relaxed = true)
+        orderService = OrderService(orderRepository, orderCommandService, maxRetries = 3)
     }
 
     @Test
@@ -44,8 +44,8 @@ class OrderServiceTest {
                 amount = request.amount,
                 status = OrderStatus.CREATED,
             )
-        every { commandInboxService.submitCommand(any(), any(), any()) } returns
-            CommandSubmitResult(1L, 1L, CommandStatus.PENDING, "OK")
+        every { orderCommandService.submitOrderEvent(any(), any(), any()) } returns
+            CommandSubmitResult(1L, "1", "ORDER_STATE_TRANSITION", CommandStatus.PENDING, "OK")
 
         val result = orderService.createOrder(request)
 

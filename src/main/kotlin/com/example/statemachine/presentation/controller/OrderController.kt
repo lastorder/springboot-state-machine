@@ -1,12 +1,11 @@
 package com.example.statemachine.presentation.controller
 
 import com.example.statemachine.commandinbox.domain.CommandPriority
-import com.example.statemachine.commandinbox.domain.CommandSource
 import com.example.statemachine.commandinbox.dto.CommandStatusResponse
 import com.example.statemachine.commandinbox.dto.CommandSubmitResult
 import com.example.statemachine.commandinbox.exception.CommandNotFoundException
-import com.example.statemachine.commandinbox.service.CommandInboxService
 import com.example.statemachine.domain.enums.OrderEvent
+import com.example.statemachine.order.service.OrderCommandService
 import com.example.statemachine.order.service.OrderService
 import com.example.statemachine.presentation.dto.CreateOrderRequest
 import com.example.statemachine.presentation.dto.ModifyOrderRequest
@@ -28,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/orders")
 class OrderController(
     private val orderService: OrderService,
-    private val commandInboxService: CommandInboxService,
+    private val orderCommandService: OrderCommandService,
 ) {
     @PostMapping
     fun createOrder(
@@ -61,10 +60,9 @@ class OrderController(
         @PathVariable id: Long,
     ): ResponseEntity<CommandSubmitResult> {
         val result =
-            commandInboxService.submitCommand(
+            orderCommandService.submitOrderEvent(
                 orderId = id,
                 event = OrderEvent.RETRY_VALIDATION,
-                source = CommandSource.HTTP,
                 priority = CommandPriority.HIGH,
             )
         return ResponseEntity.accepted().body(result)
@@ -75,16 +73,15 @@ class OrderController(
         @PathVariable id: Long,
         @Valid @RequestBody request: ModifyOrderRequest,
     ): ResponseEntity<CommandSubmitResult> {
-        val payload = mutableMapOf<String, Any>()
-        request.quantity?.let { payload["quantity"] = it }
-        request.product?.let { payload["product"] = it }
+        val headers = mutableMapOf<String, Any>()
+        request.quantity?.let { headers["quantity"] = it }
+        request.product?.let { headers["product"] = it }
 
         val result =
-            commandInboxService.submitCommand(
+            orderCommandService.submitOrderEvent(
                 orderId = id,
                 event = OrderEvent.MODIFY_ORDER,
-                source = CommandSource.HTTP,
-                payload = payload.ifEmpty { null },
+                headers = headers.ifEmpty { emptyMap() },
             )
         return ResponseEntity.accepted().body(result)
     }
@@ -94,10 +91,9 @@ class OrderController(
         @PathVariable id: Long,
     ): ResponseEntity<CommandSubmitResult> {
         val result =
-            commandInboxService.submitCommand(
+            orderCommandService.submitOrderEvent(
                 orderId = id,
                 event = OrderEvent.USER_CONFIRM,
-                source = CommandSource.HTTP,
                 priority = CommandPriority.HIGH,
             )
         return ResponseEntity.accepted().body(result)
@@ -108,12 +104,13 @@ class OrderController(
         @PathVariable id: Long,
         @RequestParam(required = false) reason: String?,
     ): ResponseEntity<CommandSubmitResult> {
+        val headers =
+            if (reason != null) mapOf("reason" to reason) else emptyMap()
         val result =
-            commandInboxService.submitCommand(
+            orderCommandService.submitOrderEvent(
                 orderId = id,
                 event = OrderEvent.USER_REJECT,
-                source = CommandSource.HTTP,
-                payload = if (reason != null) mapOf("reason" to reason) else null,
+                headers = headers,
             )
         return ResponseEntity.accepted().body(result)
     }
@@ -123,10 +120,9 @@ class OrderController(
         @PathVariable id: Long,
     ): ResponseEntity<CommandSubmitResult> {
         val result =
-            commandInboxService.submitCommand(
+            orderCommandService.submitOrderEvent(
                 orderId = id,
                 event = OrderEvent.SUBMIT_VALIDATION,
-                source = CommandSource.HTTP,
             )
         return ResponseEntity.accepted().body(result)
     }
@@ -137,11 +133,10 @@ class OrderController(
         @Valid @RequestBody request: PaymentRequest,
     ): ResponseEntity<CommandSubmitResult> {
         val result =
-            commandInboxService.submitCommand(
+            orderCommandService.submitOrderEvent(
                 orderId = id,
                 event = OrderEvent.PAY,
-                source = CommandSource.HTTP,
-                payload = mapOf("amount" to request.amount),
+                headers = mapOf("amount" to request.amount),
                 priority = CommandPriority.HIGH,
             )
         return ResponseEntity.accepted().body(result)
@@ -152,10 +147,9 @@ class OrderController(
         @PathVariable id: Long,
     ): ResponseEntity<CommandSubmitResult> {
         val result =
-            commandInboxService.submitCommand(
+            orderCommandService.submitOrderEvent(
                 orderId = id,
                 event = OrderEvent.CANCEL,
-                source = CommandSource.HTTP,
                 priority = CommandPriority.URGENT,
             )
         return ResponseEntity.accepted().body(result)
@@ -167,18 +161,22 @@ class OrderController(
         @PathVariable commandId: Long,
     ): ResponseEntity<CommandStatusResponse> {
         val command =
-            commandInboxService.getCommandStatus(orderId, commandId)
+            orderCommandService.getCommandStatus(orderId, commandId)
                 ?: throw CommandNotFoundException("Command not found: orderId=$orderId, commandId=$commandId")
 
         return ResponseEntity.ok(
             CommandStatusResponse(
                 commandId = command.id!!,
-                orderId = command.orderId,
-                eventType = command.eventType,
+                groupId = command.groupId,
+                commandType = command.commandType,
                 status = command.status,
+                retryCount = command.retryCount,
+                maxRetries = command.maxRetries,
                 errorMessage = command.errorMessage,
+                response = command.response,
                 createdAt = command.createdAt,
                 processedAt = command.processedAt,
+                nextRetryAt = command.nextRetryAt,
             ),
         )
     }

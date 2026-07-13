@@ -1,6 +1,7 @@
 package com.example.statemachine.config
 
-import com.example.statemachine.commandinbox.service.CommandInboxService
+import com.example.statemachine.commandinbox.repository.CommandRepository
+import com.example.statemachine.commandinbox.service.CommandBus
 import com.example.statemachine.infrastructure.kafka.OrderEventProducer
 import com.example.statemachine.statemachine.action.InventoryCheckAction
 import com.example.statemachine.statemachine.action.NotifyAction
@@ -12,6 +13,7 @@ import com.example.statemachine.statemachine.action.SubmitAction
 import com.example.statemachine.statemachine.action.ValidationSubmitAction
 import com.example.statemachine.statemachine.guard.PaymentGuard
 import com.example.statemachine.statemachine.service.StateMachineService
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.github.kagkarlsson.scheduler.SchedulerClient
 import io.mockk.mockk
 import org.springframework.boot.test.context.TestConfiguration
@@ -35,7 +37,14 @@ class TestConfig {
 
     @Bean
     @Primary
-    fun commandInboxService(): CommandInboxService = mockk(relaxed = true)
+    fun commandRepository(): CommandRepository = mockk(relaxed = true)
+
+    @Bean
+    @Primary
+    fun commandBus(
+        commandRepository: CommandRepository,
+        schedulerClient: SchedulerClient,
+    ): CommandBus = CommandBus(commandRepository, schedulerClient, ObjectMapper())
 
     @Bean
     @Primary

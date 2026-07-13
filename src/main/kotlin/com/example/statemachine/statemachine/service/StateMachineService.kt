@@ -34,7 +34,7 @@ class StateMachineService(
         val stateMachine = stateMachineFactory.getStateMachine(machineId)
 
         return try {
-            restoreStateMachine(stateMachine, machineId)
+            restoreStateMachine(stateMachine, machineId).block()
             log.debug("Restored state machine state: ${stateMachine.state.id}")
 
             val message =
@@ -57,7 +57,7 @@ class StateMachineService(
             log.error("Error sending event: orderId=$orderId, event=$event", e)
             false
         } finally {
-            stopStateMachine(stateMachine)
+            stopStateMachine(stateMachine).block()
         }
     }
 
@@ -66,13 +66,13 @@ class StateMachineService(
         val stateMachine = stateMachineFactory.getStateMachine(machineId)
 
         return try {
-            restoreStateMachine(stateMachine, machineId)
+            restoreStateMachine(stateMachine, machineId).block()
             stateMachine.state.id
         } catch (e: Exception) {
             log.error("Error getting current state: orderId=$orderId", e)
             null
         } finally {
-            stopStateMachine(stateMachine)
+            stopStateMachine(stateMachine).block()
         }
     }
 
@@ -84,24 +84,13 @@ class StateMachineService(
         val stateMachine = stateMachineFactory.getStateMachine(machineId)
 
         try {
-            stateMachine.stateMachineAccessor.doWithRegion { region ->
-                region.resetStateMachine(
-                    DefaultStateMachineContext(
-                        initialState,
-                        null,
-                        null,
-                        null,
-                        null,
-                        machineId,
-                    ),
-                )
-            }
+            resetStateMachineContext(stateMachine, initialState, machineId).block()
             persistStateMachine(stateMachine, machineId)
             log.info("Initialized state machine: orderId=$orderId, initialState=$initialState")
         } catch (e: Exception) {
             log.error("Error initializing state machine: orderId=$orderId", e)
         } finally {
-            stopStateMachine(stateMachine)
+            stopStateMachine(stateMachine).block()
         }
     }
 
@@ -115,31 +104,39 @@ class StateMachineService(
             .map { it.resultType == org.springframework.statemachine.StateMachineEventResult.ResultType.ACCEPTED }
             .onErrorReturn(false)
 
-    private fun stopStateMachine(stateMachine: StateMachine<OrderStatus, OrderEvent>) {
-        stateMachine.stopReactively().block()
-    }
+    private fun stopStateMachine(stateMachine: StateMachine<OrderStatus, OrderEvent>): Mono<Void> = stateMachine.stopReactively()
 
     private fun restoreStateMachine(
         stateMachine: StateMachine<OrderStatus, OrderEvent>,
         machineId: String,
-    ) {
+    ): Mono<Void> {
         val stateMachineEntity = jpaStateMachineRepository.findById(machineId)
-        if (stateMachineEntity.isPresent) {
+        return if (stateMachineEntity.isPresent) {
             val entity = stateMachineEntity.get()
             val state = OrderStatus.valueOf(entity.state)
-            stateMachine.stateMachineAccessor.doWithRegion { region ->
-                region.resetStateMachine(
-                    DefaultStateMachineContext(
-                        state,
-                        null,
-                        null,
-                        null,
-                        null,
-                        machineId,
-                    ),
-                )
-            }
+            resetStateMachineContext(stateMachine, state, machineId)
+        } else {
+            Mono.empty()
         }
+    }
+
+    private fun resetStateMachineContext(
+        stateMachine: StateMachine<OrderStatus, OrderEvent>,
+        state: OrderStatus,
+        machineId: String,
+    ): Mono<Void> {
+        val context =
+            DefaultStateMachineContext<OrderStatus, OrderEvent>(
+                state,
+                null,
+                null,
+                null,
+                null,
+                machineId,
+            )
+        return stateMachine.stateMachineAccessor
+            .withRegion()
+            .resetStateMachineReactively(context)
     }
 
     private fun persistStateMachine(

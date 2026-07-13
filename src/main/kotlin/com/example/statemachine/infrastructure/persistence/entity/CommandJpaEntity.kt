@@ -1,8 +1,7 @@
 package com.example.statemachine.infrastructure.persistence.entity
 
-import com.example.statemachine.commandinbox.domain.CommandSource
+import com.example.statemachine.commandinbox.domain.BackoffStrategy
 import com.example.statemachine.commandinbox.domain.CommandStatus
-import com.example.statemachine.domain.enums.OrderEvent
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -18,42 +17,45 @@ import java.time.Instant
 
 @Entity
 @Table(
-    name = "command_inbox",
+    name = "command",
     uniqueConstraints = [
         UniqueConstraint(
             name = "uk_command_idempotency",
-            columnNames = ["order_id", "event_type", "idempotency_key"],
+            columnNames = ["group_id", "command_type", "idempotency_key"],
         ),
     ],
 )
-class CommandInboxJpaEntity(
+class CommandJpaEntity(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
-    @Column(name = "order_id", nullable = false)
-    val orderId: Long,
-    @Enumerated(EnumType.STRING)
-    @Column(name = "event_type", nullable = false, length = 50)
-    val eventType: OrderEvent,
-    @Enumerated(EnumType.STRING)
-    @Column(name = "source", nullable = false, length = 20)
-    val source: CommandSource,
-    @Column(name = "source_reference", length = 255)
-    val sourceReference: String? = null,
-    @Column(name = "correlation_id", length = 100)
-    val correlationId: String? = null,
+    @Column(name = "group_id", nullable = false, length = 255)
+    val groupId: String,
+    @Column(name = "command_type", nullable = false, length = 100)
+    val commandType: String,
+    @Column(name = "idempotency_key", nullable = false, length = 255)
+    val idempotencyKey: String,
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload", columnDefinition = "jsonb")
     val payload: String? = null,
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "headers", columnDefinition = "jsonb")
-    val headers: String? = null,
-    @Column(name = "idempotency_key", length = 255)
-    val idempotencyKey: String? = null,
+    @Column(name = "response", columnDefinition = "jsonb")
+    var response: String? = null,
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "metadata", columnDefinition = "jsonb")
+    val metadata: String? = null,
     @Column(name = "priority", nullable = false)
-    var priority: Int = 0,
-    @Column(name = "expires_at")
-    var expiresAt: Instant? = null,
+    val priority: Int = 0,
+    @Column(name = "max_retries", nullable = false)
+    val maxRetries: Int = 3,
+    @Column(name = "retry_count", nullable = false)
+    var retryCount: Int = 0,
+    @Enumerated(EnumType.STRING)
+    @Column(name = "backoff_strategy", nullable = false, length = 20)
+    val backoffStrategy: BackoffStrategy = BackoffStrategy.FIXED,
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "backoff_config", columnDefinition = "jsonb")
+    val backoffConfig: String? = null,
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     var status: CommandStatus = CommandStatus.PENDING,
@@ -65,4 +67,6 @@ class CommandInboxJpaEntity(
     var updatedAt: Instant = Instant.now(),
     @Column(name = "processed_at")
     var processedAt: Instant? = null,
+    @Column(name = "next_retry_at")
+    var nextRetryAt: Instant? = null,
 )

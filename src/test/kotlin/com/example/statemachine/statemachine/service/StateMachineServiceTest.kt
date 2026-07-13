@@ -14,8 +14,8 @@ import org.springframework.messaging.Message
 import org.springframework.statemachine.StateMachine
 import org.springframework.statemachine.StateMachineEventResult
 import org.springframework.statemachine.config.StateMachineFactory
-import org.springframework.statemachine.data.jpa.JpaStateMachineRepository
 import org.springframework.statemachine.data.jpa.JpaRepositoryStateMachine
+import org.springframework.statemachine.data.jpa.JpaStateMachineRepository
 import org.springframework.statemachine.state.State
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
@@ -42,9 +42,10 @@ class StateMachineServiceTest {
         val event = OrderEvent.USER_CONFIRM
         val machineId = orderId.toString()
 
-        val eventResult = mockk<StateMachineEventResult<OrderStatus, OrderEvent>> {
-            every { resultType } returns StateMachineEventResult.ResultType.ACCEPTED
-        }
+        val eventResult =
+            mockk<StateMachineEventResult<OrderStatus, OrderEvent>> {
+                every { resultType } returns StateMachineEventResult.ResultType.ACCEPTED
+            }
 
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
         every { jpaStateMachineRepository.findById(machineId) } returns Optional.empty()
@@ -67,9 +68,10 @@ class StateMachineServiceTest {
         val headers = mapOf("amount" to 100.0)
         val machineId = orderId.toString()
 
-        val eventResult = mockk<StateMachineEventResult<OrderStatus, OrderEvent>> {
-            every { resultType } returns StateMachineEventResult.ResultType.ACCEPTED
-        }
+        val eventResult =
+            mockk<StateMachineEventResult<OrderStatus, OrderEvent>> {
+                every { resultType } returns StateMachineEventResult.ResultType.ACCEPTED
+            }
 
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
         every { jpaStateMachineRepository.findById(machineId) } returns Optional.empty()
@@ -89,10 +91,11 @@ class StateMachineServiceTest {
     fun testGetCurrentState() {
         val orderId = 1L
         val machineId = orderId.toString()
-        val entity = JpaRepositoryStateMachine().apply {
-            this.machineId = machineId
-            this.state = OrderStatus.PENDING_PAYMENT.name
-        }
+        val entity =
+            JpaRepositoryStateMachine().apply {
+                this.machineId = machineId
+                this.state = OrderStatus.PENDING_PAYMENT.name
+            }
 
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
         every { jpaStateMachineRepository.findById(machineId) } returns Optional.of(entity)
@@ -176,9 +179,10 @@ class StateMachineServiceTest {
         val event = OrderEvent.USER_CONFIRM
         val machineId = orderId.toString()
 
-        val eventResult = mockk<StateMachineEventResult<OrderStatus, OrderEvent>> {
-            every { resultType } returns StateMachineEventResult.ResultType.DENIED
-        }
+        val eventResult =
+            mockk<StateMachineEventResult<OrderStatus, OrderEvent>> {
+                every { resultType } returns StateMachineEventResult.ResultType.DENIED
+            }
 
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
         every { jpaStateMachineRepository.findById(machineId) } returns Optional.empty()
@@ -238,11 +242,10 @@ class StateMachineServiceTest {
         verify { stateMachineFactory.getStateMachine(machineId) }
     }
 
-    private fun mockState(status: OrderStatus): State<OrderStatus, OrderEvent> {
-        return mockk {
+    private fun mockState(status: OrderStatus): State<OrderStatus, OrderEvent> =
+        mockk {
             every { id } returns status
             every { getPseudoState() } returns null
             every { ids } returns listOf(status)
         }
-    }
 }

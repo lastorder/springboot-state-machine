@@ -1,14 +1,14 @@
 package com.example.statemachine.commandinbox.scheduler
 
-import com.example.statemachine.commandinbox.domain.CommandInbox
 import com.example.statemachine.commandinbox.domain.CommandPriority
-import com.example.statemachine.commandinbox.domain.CommandSource
 import com.example.statemachine.commandinbox.domain.CommandStatus
-import com.example.statemachine.commandinbox.repository.CommandInboxRepository
-import com.example.statemachine.commandinbox.service.CommandInboxService
+import com.example.statemachine.commandinbox.dto.CommandMetadata
+import com.example.statemachine.commandinbox.repository.CommandRepository
+import com.example.statemachine.commandinbox.service.CommandBus
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.repository.OrderRepository
+import com.example.statemachine.order.handler.OrderStateMachineSpec
 import com.github.kagkarlsson.scheduler.task.ExecutionContext
 import com.github.kagkarlsson.scheduler.task.TaskInstance
 import com.github.kagkarlsson.scheduler.task.helper.OneTimeTask
@@ -23,8 +23,8 @@ import java.time.Instant
 @Configuration
 class ValidationTimeoutTaskConfig(
     private val orderRepository: OrderRepository,
-    private val commandInboxService: CommandInboxService,
-    private val commandInboxRepository: CommandInboxRepository,
+    private val commandBus: CommandBus,
+    private val commandRepository: CommandRepository,
     @Value("\${order.validation.timeout-minutes:10}") private val timeoutMinutes: Long,
 ) {
     private val log = LoggerFactory.getLogger(ValidationTimeoutTaskConfig::class.java)
@@ -49,10 +49,17 @@ class ValidationTimeoutTaskConfig(
                 if (order != null && order.status == OrderStatus.PENDING_VALIDATION) {
                     log.warn("Validation timeout: orderId={}", data.orderId)
 
-                    commandInboxService.submitCommand(
-                        orderId = data.orderId,
-                        event = OrderEvent.VALIDATION_TIMEOUT,
-                        source = CommandSource.SCHEDULED,
+                    val metadata =
+                        CommandMetadata(
+                            source = "SCHEDULED",
+                            sourceReference = "validation-timeout",
+                        )
+
+                    commandBus.submit(
+                        groupId = data.orderId.toString(),
+                        commandType = OrderStateMachineSpec.COMMAND_TYPE,
+                        payload = mapOf("event" to OrderEvent.VALIDATION_TIMEOUT.name),
+                        metadata = metadata,
                         priority = CommandPriority.HIGH,
                     )
                 } else {
@@ -68,37 +75,13 @@ class ValidationTimeoutTaskConfig(
             .execute { _: TaskInstance<Void>, _: ExecutionContext ->
                 log.info("Running command cleanup task")
 
-                val expiredCommands = commandInboxRepository.findExpiredCommands(Instant.now())
-                expiredCommands.forEach { command ->
-                    commandInboxRepository.save(
-                        CommandInbox(
-                            id = command.id,
-                            orderId = command.orderId,
-                            eventType = command.eventType,
-                            source = command.source,
-                            sourceReference = command.sourceReference,
-                            correlationId = command.correlationId,
-                            payload = command.payload,
-                            headers = command.headers,
-                            idempotencyKey = command.idempotencyKey,
-                            priority = command.priority,
-                            expiresAt = command.expiresAt,
-                            status = CommandStatus.EXPIRED,
-                            errorMessage = command.errorMessage,
-                            createdAt = command.createdAt,
-                            updatedAt = Instant.now(),
-                            processedAt = command.processedAt,
-                        ),
-                    )
-                }
-
                 val cutoffDate = Instant.now().minusSeconds(30 * 24 * 60 * 60L)
                 val deletedCount =
-                    commandInboxRepository.deleteByStatusAndProcessedAtBefore(
+                    commandRepository.deleteByStatusAndProcessedAtBefore(
                         CommandStatus.COMPLETED,
                         cutoffDate,
                     )
 
-                log.info("Cleanup completed: expired={}, deleted={}", expiredCommands.size, deletedCount)
+                log.info("Cleanup completed: deleted={}", deletedCount)
             }
 }

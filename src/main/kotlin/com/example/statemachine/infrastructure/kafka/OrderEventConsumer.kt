@@ -1,8 +1,7 @@
 package com.example.statemachine.infrastructure.kafka
 
 import com.example.statemachine.commandinbox.domain.CommandPriority
-import com.example.statemachine.commandinbox.domain.CommandSource
-import com.example.statemachine.commandinbox.service.CommandInboxService
+import com.example.statemachine.commandinbox.dto.CommandMetadata
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.infrastructure.kafka.dto.InventoryCheckResponse
 import com.example.statemachine.infrastructure.kafka.dto.InventoryOrderModified
@@ -11,6 +10,7 @@ import com.example.statemachine.infrastructure.kafka.dto.OrderRefundedEvent
 import com.example.statemachine.infrastructure.kafka.dto.OrderShippedEvent
 import com.example.statemachine.infrastructure.kafka.dto.PaymentConfirmedEvent
 import com.example.statemachine.infrastructure.kafka.dto.PricingResponse
+import com.example.statemachine.order.service.OrderCommandService
 import com.example.statemachine.order.service.OrderService
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component
 
 @Component
 class OrderEventConsumer(
-    private val commandInboxService: CommandInboxService,
+    private val orderCommandService: OrderCommandService,
     private val orderService: OrderService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -29,7 +29,11 @@ class OrderEventConsumer(
         val event = record.value()
         log.info("Received inventory check response: orderId=${event.orderId}, available=${event.available}")
 
-        val kafkaMeta = "kafka:${record.partition()}:${record.offset()}"
+        val metadata =
+            CommandMetadata(
+                source = "KAFKA",
+                sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            )
 
         if (event.available) {
             orderService.markInventorySuccess(
@@ -37,20 +41,18 @@ class OrderEventConsumer(
                 inventoryReference = event.inventoryReference,
             )
 
-            commandInboxService.submitCommand(
+            orderCommandService.submitOrderEvent(
                 orderId = event.orderId,
                 event = OrderEvent.INVENTORY_SUCCESS,
-                source = CommandSource.KAFKA,
-                sourceReference = kafkaMeta,
+                metadata = metadata,
                 priority = CommandPriority.HIGH,
             )
         } else {
             orderService.markInventoryFailed(event.orderId)
-            commandInboxService.submitCommand(
+            orderCommandService.submitOrderEvent(
                 orderId = event.orderId,
                 event = OrderEvent.INVENTORY_FAILED,
-                source = CommandSource.KAFKA,
-                sourceReference = kafkaMeta,
+                metadata = metadata,
                 priority = CommandPriority.HIGH,
             )
         }
@@ -61,7 +63,11 @@ class OrderEventConsumer(
         val event = record.value()
         log.info("Received pricing response: orderId=${event.orderId}, unitPrice=${event.unitPrice}")
 
-        val kafkaMeta = "kafka:${record.partition()}:${record.offset()}"
+        val metadata =
+            CommandMetadata(
+                source = "KAFKA",
+                sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            )
 
         orderService.markPricingSuccess(
             orderId = event.orderId,
@@ -69,11 +75,10 @@ class OrderEventConsumer(
             unitPrice = event.unitPrice,
         )
 
-        commandInboxService.submitCommand(
+        orderCommandService.submitOrderEvent(
             orderId = event.orderId,
             event = OrderEvent.PRICING_SUCCESS,
-            source = CommandSource.KAFKA,
-            sourceReference = kafkaMeta,
+            metadata = metadata,
             priority = CommandPriority.HIGH,
         )
     }
@@ -83,7 +88,11 @@ class OrderEventConsumer(
         val event = record.value()
         log.info("Received inventory order modified: orderId=${event.orderId}, reason=${event.reason}")
 
-        val kafkaMeta = "kafka:${record.partition()}:${record.offset()}"
+        val metadata =
+            CommandMetadata(
+                source = "KAFKA",
+                sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            )
 
         orderService.updateFromInventoryModification(
             orderId = event.orderId,
@@ -92,11 +101,10 @@ class OrderEventConsumer(
             reason = event.reason,
         )
 
-        commandInboxService.submitCommand(
+        orderCommandService.submitOrderEvent(
             orderId = event.orderId,
             event = OrderEvent.INVENTORY_MODIFIED,
-            source = CommandSource.KAFKA,
-            sourceReference = kafkaMeta,
+            metadata = metadata,
         )
     }
 
@@ -105,11 +113,16 @@ class OrderEventConsumer(
         val event = record.value()
         log.info("Received payment confirmed event: orderId=${event.orderId}")
 
-        commandInboxService.submitCommand(
+        val metadata =
+            CommandMetadata(
+                source = "KAFKA",
+                sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            )
+
+        orderCommandService.submitOrderEvent(
             orderId = event.orderId,
             event = OrderEvent.CONFIRM_PAYMENT,
-            source = CommandSource.KAFKA,
-            sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            metadata = metadata,
             priority = CommandPriority.URGENT,
         )
     }
@@ -119,11 +132,16 @@ class OrderEventConsumer(
         val event = record.value()
         log.info("Received order shipped event: orderId=${event.orderId}")
 
-        commandInboxService.submitCommand(
+        val metadata =
+            CommandMetadata(
+                source = "KAFKA",
+                sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            )
+
+        orderCommandService.submitOrderEvent(
             orderId = event.orderId,
             event = OrderEvent.SHIP,
-            source = CommandSource.KAFKA,
-            sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            metadata = metadata,
         )
     }
 
@@ -132,11 +150,16 @@ class OrderEventConsumer(
         val event = record.value()
         log.info("Received order delivered event: orderId=${event.orderId}")
 
-        commandInboxService.submitCommand(
+        val metadata =
+            CommandMetadata(
+                source = "KAFKA",
+                sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            )
+
+        orderCommandService.submitOrderEvent(
             orderId = event.orderId,
             event = OrderEvent.DELIVER,
-            source = CommandSource.KAFKA,
-            sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            metadata = metadata,
         )
     }
 
@@ -145,11 +168,16 @@ class OrderEventConsumer(
         val event = record.value()
         log.info("Received order refunded event: orderId=${event.orderId}")
 
-        commandInboxService.submitCommand(
+        val metadata =
+            CommandMetadata(
+                source = "KAFKA",
+                sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            )
+
+        orderCommandService.submitOrderEvent(
             orderId = event.orderId,
             event = OrderEvent.REFUND,
-            source = CommandSource.KAFKA,
-            sourceReference = "kafka:${record.partition()}:${record.offset()}",
+            metadata = metadata,
             priority = CommandPriority.URGENT,
         )
     }

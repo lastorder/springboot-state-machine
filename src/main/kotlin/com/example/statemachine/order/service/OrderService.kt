@@ -1,7 +1,6 @@
 package com.example.statemachine.order.service
 
-import com.example.statemachine.commandinbox.domain.CommandSource
-import com.example.statemachine.commandinbox.service.CommandInboxService
+import com.example.statemachine.commandinbox.domain.CommandPriority
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.model.Order
@@ -17,7 +16,7 @@ import java.math.BigDecimal
 @Service
 class OrderService(
     private val orderRepository: OrderRepository,
-    private val commandInboxService: CommandInboxService,
+    private val orderCommandService: OrderCommandService,
     @Value("\${order.validation.max-retries:3}") private val maxRetries: Int,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -34,10 +33,10 @@ class OrderService(
         val savedOrder = orderRepository.save(order)
         log.info("Created order: id=${savedOrder.id}, product=${savedOrder.product}, quantity=${savedOrder.quantity}")
 
-        commandInboxService.submitCommand(
+        orderCommandService.submitOrderEvent(
             orderId = savedOrder.id!!,
             event = OrderEvent.SUBMIT_VALIDATION,
-            source = CommandSource.INTERNAL,
+            priority = CommandPriority.HIGH,
         )
 
         return toResponse(savedOrder)

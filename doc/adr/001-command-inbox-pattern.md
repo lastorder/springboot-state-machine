@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted (Updated 2026-07-13)
 
 ## Context
 
@@ -33,7 +33,7 @@ Kafka Message → OrderEventConsumer ──────────────�
 
 ## Decision
 
-Implement **Command Inbox Pattern** with **DB-Scheduler** using **one Task per Order** model.
+Implement **Command Inbox Pattern** with **DB-Scheduler** using **one Task per groupId** model.
 
 ### Solution Architecture
 
@@ -45,38 +45,43 @@ Implement **Command Inbox Pattern** with **DB-Scheduler** using **one Task per O
                                                │
                                                ▼
                     ┌─────────────────────────────────────────────────────────┐
-                    │               CommandInboxService.submitCommand()        │
+                    │                     CommandBus                           │
+                    │  commandBus.submit(spec, groupId, payload)               │
+                    │                                                          │
                     │  1. Deduplication check (idempotency key)                │
-                    │  2. Expiration check                                      │
-                    │  3. Priority assignment                                   │
-                    │  4. Persist to command_inbox table                        │
-                    │  5. Schedule DB-Scheduler task (if needed)               │
+                    │  2. Use spec's default config (priority, retries, etc.)   │
+                    │  3. Persist to command table                              │
+                    │  4. Schedule DB-Scheduler task (if needed)               │
                     └──────────────────────────┬──────────────────────────────┘
                                                │
                                                ▼
                     ┌─────────────────────────────────────────────────────────┐
-                    │                    command_inbox table                    │
-                    │  - id, order_id, event_type, payload, status             │
+                    │                      command table                        │
+                    │  - id, group_id, command_type, payload, status           │
                     │  - idempotency_key (deduplication)                       │
                     │  - priority (URGENT > HIGH > NORMAL)                     │
-                    │  - expires_at (command timeout)                          │
+                    │  - max_retries, backoff_strategy, backoff_config         │
+                    │  - response (successful result)                          │
+                    │  - metadata (traceId, spanId, source, etc.)              │
                     └──────────────────────────┬──────────────────────────────┘
                                                │
                                                ▼
                     ┌─────────────────────────────────────────────────────────┐
-                    │           DB-Scheduler (One Task Per Order)             │
+                    │           DB-Scheduler (One Task Per Group)              │
                     │                                                          │
-                    │  task_id = orderId (unique per order)                   │
+                    │  task_id = groupId (unique per group)                    │
                     │                                                          │
                     │  Loop:                                                   │
-                    │    1. SELECT next PENDING command                       │
-                    │    2. Execute StateMachineService.sendEvent()            │
-                    │       → Success: markCompleted()                         │
-                    │       → Failure: markSkipped() + WARNING log             │
-                    │    3. Sleep 100ms                                        │
-                    │    4. Check for more PENDING commands                    │
-                    │       → Yes: Reschedule self                             │
-                    │       → No: Task ends                                    │
+                    │    1. SELECT next PENDING command                        │
+                    │    2. Get CommandSpec from CommandSpecRegistry            │
+                    │    3. Execute spec.handle(context)                        │
+                    │       → Success: markCompleted()                          │
+                    │       → Failure: scheduleRetry() or markFailed()          │
+                    │       → Skipped: markSkipped()                            │
+                    │    4. Sleep 100ms                                        │
+                    │    5. Check for more PENDING commands                     │
+                    │       → Yes: Reschedule self                              │
+                    │       → No: Task ends                                     │
                     └──────────────────────────┬──────────────────────────────┘
                                                │
                                                ▼
@@ -87,9 +92,9 @@ Implement **Command Inbox Pattern** with **DB-Scheduler** using **one Task per O
                     └─────────────────────────────────────────────────────────┘
 ```
 
-### Key Design: One Task Per Order
+### Key Design: One Task Per Group
 
-**Core Principle**: Each order has exactly one Task instance (`task_id = orderId`)
+**Core Principle**: Each group (order) has exactly one Task instance (`task_id = groupId`)
 
 **Why This Works**:
 1. DB-Scheduler uses `SELECT FOR UPDATE SKIP LOCKED` to pick tasks
@@ -105,95 +110,96 @@ Task(order-100) starts:
   │     └─ Reschedule Task(order-100)
   │
   └─ Task(order-100) picks up again:
-     ├─ Get C2 (PENDING) → Execute → Failed → markSkipped(C2)
+     ├─ Get C2 (PENDING) → Execute → Failed → scheduleRetry(C2)
      │  └─ Sleep 100ms → Check: no more PENDING
      │     └─ Task ends naturally
 ```
 
 ### Key Components
 
-#### 1. Command Inbox Table
+#### 1. CommandSpec Interface
+
+```kotlin
+interface CommandSpec<P : Any, R : Any> {
+    val commandType: String
+    val payloadType: KClass<P>
+    val responseType: KClass<R>
+    
+    // Default configuration
+    val defaultMaxRetries: Int get() = 3
+    val defaultBackoffStrategy: BackoffStrategy get() = BackoffStrategy.FIXED
+    val defaultBackoffConfig: BackoffConfig get() = BackoffConfig.DEFAULT
+    val defaultPriority: CommandPriority get() = CommandPriority.NORMAL
+    
+    fun handle(context: CommandContext<P>): CommandResult<R>
+}
+```
+
+#### 2. CommandBus
+
+- `submit(spec, groupId, payload)`: Submit command using spec's default config
+- `submit(groupId, commandType, payload, ...)`: Submit with custom parameters
+- `markCompleted()`: Mark command as successfully processed
+- `markSkipped()`: Mark command as skipped
+- `markFailed()`: Mark command as permanently failed
+- `scheduleRetry()`: Schedule command for retry with backoff
+
+#### 3. CommandSpecRegistry
+
+- Auto-registers all `CommandSpec` beans by `commandType`
+- Provides `getSpec(commandType)` for task execution
+
+#### 4. Command Table
 
 ```sql
-CREATE TABLE command_inbox (
+CREATE TABLE command (
     id BIGSERIAL PRIMARY KEY,
-    order_id BIGINT NOT NULL,
-    event_type VARCHAR(50) NOT NULL,
-    source VARCHAR(20) NOT NULL,           -- HTTP/KAFKA/SCHEDULED/INTERNAL
-    source_reference VARCHAR(255),          -- Kafka offset, trace ID, etc.
-    correlation_id VARCHAR(100),
+    group_id VARCHAR(255) NOT NULL,
+    command_type VARCHAR(100) NOT NULL,
+    idempotency_key VARCHAR(255) NOT NULL,
     payload JSONB,
-    headers JSONB,
-    idempotency_key VARCHAR(255),           -- Deduplication
-    priority SMALLINT NOT NULL DEFAULT 0,   -- 0=NORMAL, 100=HIGH, 200=URGENT
-    expires_at TIMESTAMP WITH TIME ZONE,
+    response JSONB,
+    metadata JSONB,
+    priority INT NOT NULL DEFAULT 0,
+    max_retries INT NOT NULL DEFAULT 3,
+    retry_count INT NOT NULL DEFAULT 0,
+    backoff_strategy VARCHAR(20) NOT NULL DEFAULT 'FIXED',
+    backoff_config JSONB,
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     error_message TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     processed_at TIMESTAMP WITH TIME ZONE,
-    CONSTRAINT uk_command_idempotency UNIQUE (order_id, event_type, idempotency_key)
+    next_retry_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT uk_command_idempotency UNIQUE (group_id, command_type, idempotency_key)
 );
-```
-
-#### 2. CommandInboxService
-
-- `submitCommand()`: Submit command to inbox with deduplication, priority, expiration
-- `markCompleted()`: Mark command as successfully processed
-- `markSkipped()`: Mark command as skipped (state machine rejected or exception)
-- `markExpired()`: Mark command as expired
-
-#### 3. OrderStateMachineTask (DB-Scheduler One-Time Task)
-
-```kotlin
-@Bean
-fun orderStateMachineTask(): OneTimeTask<OrderTaskData> {
-    return object : OneTimeTask<OrderTaskData>(
-        "order-state-machine",
-        OrderTaskData::class.java,
-    ) {
-        override fun executeOnce(taskInstance, executionContext) {
-            val orderId = taskInstance.data.orderId
-            
-            // 1. Get next pending command
-            val command = commandInboxRepository.findNextPendingCommand(orderId)
-            if (command == null) return  // Task ends
-            
-            // 2. Execute state machine
-            val success = stateMachineService.sendEvent(orderId, command.eventType, headers)
-            
-            if (success) {
-                commandInboxService.markCompleted(command.id)
-            } else {
-                commandInboxService.markSkipped(command.id, "State machine rejected")
-            }
-            
-            // 3. Wait and check for more
-            Thread.sleep(100)
-            if (commandInboxRepository.countPendingCommands(orderId) > 0) {
-                // Reschedule self
-                executionContext.schedulerClient.schedule(...)
-            }
-        }
-    }
-}
 ```
 
 ### Command Status Flow
 
 ```
-PENDING → (executed) → COMPLETED (success)
-                     → SKIPPED (state machine rejected or exception)
-                     → EXPIRED (past expires_at)
+PENDING → (executing) → COMPLETED (success)
+                       → SKIPPED (rejected by handler)
+                       → RETRYING (transient failure)
+                              ↓
+                       FAILED (max retries exceeded)
 ```
+
+### Retry Strategies
+
+| Strategy | Formula | Example (initial=1s, retries=3) |
+|----------|---------|--------------------------------|
+| FIXED | delay = initial | 1s, 1s, 1s |
+| LINEAR | delay = initial × (retry + 1) | 1s, 2s, 3s |
+| EXPONENTIAL | delay = initial × multiplier^retry | 1s, 2s, 4s |
 
 ### Configuration
 
 ```yaml
-command-inbox:
-  enabled: true
-  cleanup:
-    enabled: true
-    retention-days: 30
+order:
+  validation:
+    max-retries: 3
+    timeout-minutes: 10
 
 db-scheduler:
   enabled: true
@@ -212,44 +218,78 @@ db-scheduler:
 2. **No Extra Locks**: No need for distributed locks or order_execution_lock table
 3. **Resource Efficient**: Only active orders have Tasks; inactive orders' Tasks end naturally
 4. **Simple Design**: One Task per order, self-scheduling loop
-5. **Observability**: Full audit trail in command_inbox table; Task execution visible in scheduled_tasks
+5. **Observability**: Full audit trail in command table; Task execution visible in scheduled_tasks
 6. **Priority Handling**: Urgent operations processed first within an order
 7. **Idempotency**: Duplicate submissions rejected automatically
+8. **Type Safety**: CommandSpec provides compile-time payload/response types
+9. **Auto Retry**: Configurable retry with backoff strategies
+10. **Clean API**: `spec.submit(groupId, payload)` with minimal parameters
 
 ### Negative
 
 1. **Latency**: Commands processed asynchronously; slight delay due to 100ms wait between commands
-2. **No Automatic Retry**: Failed commands marked SKIPPED instead of retrying (by design)
-3. **Complexity**: Additional components (CommandInbox, DB-Scheduler tasks)
+2. **Complexity**: Additional components (CommandSpec, CommandBus, DB-Scheduler tasks)
 
 ### Risks and Mitigations
 
 | Risk | Mitigation |
 |------|-----------|
 | Command backlog | Priority ordering ensures urgent commands first |
-| Programmed SKIPPED commands | WARNING logs for investigation; consistent state |
+| Failed commands | Retry with backoff; max retries prevents infinite retry |
 | Database overflow | Cleanup task removes old commands after 30 days |
 
 ## Implementation
 
-### Files Added/Modified
+### Files
 
 | File | Purpose |
 |------|---------|
-| `domain/CommandInbox.kt` | JPA entity |
-| `domain/CommandStatus.kt` | Status enum (PENDING, COMPLETED, SKIPPED, EXPIRED) |
-| `domain/CommandSource.kt` | Source enum |
-| `domain/CommandPriority.kt` | Priority levels |
-| `repository/CommandInboxRepository.kt` | Repository with findNextPendingCommand, countPendingCommands |
-| `service/CommandInboxService.kt` | Core service |
-| `scheduler/TaskData.kt` | OrderTaskData for Task |
-| `scheduler/SchedulerTaskConfig.kt` | OrderStateMachineTask definition |
-| `scheduler/ValidationTimeoutTaskConfig.kt` | Timeout and cleanup tasks |
+| `commandinbox/domain/Command.kt` | Core domain model |
+| `commandinbox/domain/BackoffStrategy.kt` | Retry strategies |
+| `commandinbox/domain/CommandPriority.kt` | Priority levels |
+| `commandinbox/domain/CommandStatus.kt` | Status enum |
+| `commandinbox/dto/CommandDTOs.kt` | DTOs for submit result, metadata, backoff config |
+| `commandinbox/handler/CommandSpec.kt` | Spec interface with default config |
+| `commandinbox/handler/CommandContext.kt` | Execution context |
+| `commandinbox/handler/CommandResult.kt` | Result types (Success/Failure/Skipped) |
+| `commandinbox/handler/CommandSpecRegistry.kt` | Spec registration |
+| `commandinbox/service/CommandBus.kt` | Submit and manage commands |
+| `commandinbox/scheduler/CommandTaskConfig.kt` | DB-Scheduler task |
+| `commandinbox/scheduler/ValidationTimeoutTaskConfig.kt` | Timeout and cleanup tasks |
+| `order/handler/OrderStateMachineSpec.kt` | Order state transition spec |
 
 ### API Changes
 
 - HTTP endpoints return `202 Accepted` with `CommandSubmitResult`
 - Use `GET /api/orders/{orderId}/commands/{commandId}` to check command status
+
+### Example Usage
+
+```kotlin
+// Define a spec
+@Component
+class OrderStateMachineSpec(
+    private val commandBus: CommandBus,
+    private val stateMachineService: StateMachineService,
+) : CommandSpec<OrderEventPayload, Unit> {
+    
+    override val commandType = "ORDER_STATE_TRANSITION"
+    override val payloadType = OrderEventPayload::class
+    override val responseType = Unit::class
+    override val defaultPriority = CommandPriority.URGENT
+    
+    override fun handle(context: CommandContext<OrderEventPayload>): CommandResult<Unit> {
+        // Execute state transition
+    }
+    
+    // Convenient submit method
+    fun submit(orderId: Long, event: OrderEvent, ...) = 
+        commandBus.submit(this, orderId.toString(), OrderEventPayload(event, ...))
+}
+
+// Use the spec
+orderStateMachineSpec.submit(orderId, OrderEvent.USER_CONFIRM)
+```
 
 ## References
 
@@ -260,3 +300,9 @@ db-scheduler:
 
 - 2026-07-12: Initial proposal with per-command Tasks
 - 2026-07-12: Revised to one Task per Order model (accepted)
+- 2026-07-13: Refactored to CommandSpec + CommandBus pattern
+  - Renamed `CommandHandler` to `CommandSpec`
+  - Renamed `CommandInboxService` to `CommandBus`
+  - Added default config to each spec
+  - Removed `expiresAt` (controlled by maxRetries only)
+  - Simplified submit API: `spec.submit(groupId, payload)`
