@@ -1,0 +1,68 @@
+spring:
+  sql:
+    init:
+      mode: always
+
+  datasource:
+    url: jdbc:tc:postgresql:16:///testdb?TC_REUSABLE=false
+    username: test
+    password: test
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    open-in-view: false
+    packages-to-scan: com.example.statemachine.infrastructure.persistence.entity
+
+  kafka:
+    consumer:
+      group-id: order-state-machine-test-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+
+server:
+  port: 0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+spring.statemachine:
+  jpa:
+    enabled: true
+  data:
+    jpa:
+      repositories:
+        enabled: true
+
+order:
+  validation:
+    timeout-minutes: 10
+    max-retries: 3
+
+db-scheduler:
+  enabled: true
+  polling-interval: 100ms
+  threads: 1
+  immediate-execution-enabled: true
+
+shedlock:
+  enabled: true
+
+logging:
+  level:
+    root: WARN
+    com.example.statemachine: DEBUG
+    org.springframework.statemachine: INFO

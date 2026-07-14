@@ -9,9 +9,19 @@ This project uses Gradle with Kotlin DSL. Always run the following commands afte
 ./gradlew build
 ```
 
-### Run Tests
+### Run Unit Tests (fast, ~5s)
 ```bash
 ./gradlew test
+```
+
+### Run Integration Tests (slower, ~20s)
+```bash
+./gradlew integrationTest
+```
+
+### Run All Tests
+```bash
+./gradlew check
 ```
 
 ### Run Tests with Coverage
@@ -42,18 +52,33 @@ docker-compose up -d
 ## Project Structure
 
 - `src/main/kotlin/com/example/statemachine/` - Main source code
-- `src/test/kotlin/com/example/statemachine/` - Test code
+- `src/test/kotlin/com/example/statemachine/` - Unit tests (pure MockK, no Spring Context)
+- `src/integrationTest/kotlin/com/example/statemachine/` - Integration tests (SpringBootTest, Testcontainers)
 - `build.gradle.kts` - Build configuration
 - `docker-compose.yml` - Local development infrastructure
 - `doc/state-machine-design.html` - State machine design documentation
+
+## Test Structure
+
+### Unit Tests (`src/test/`)
+- Pure MockK, no Spring Context loading
+- No Testcontainers, no database
+- Fast execution (~5 seconds)
+- Test individual classes in isolation
+
+### Integration Tests (`src/integrationTest/`)
+- Full Spring Boot Context
+- Testcontainers: PostgreSQL + Kafka
+- End-to-end API testing
+- Slower execution (~20 seconds)
 
 ## Testing Requirements
 
 1. **Every code change must be followed by running tests**
 2. Minimum test coverage: 80%
 3. All tests must pass before committing
-4. Use Testcontainers for integration tests (PostgreSQL, Kafka)
-5. Use MockK for unit tests
+4. Use MockK for unit tests
+5. Use Testcontainers for integration tests
 
 ## Code Style
 
@@ -64,58 +89,59 @@ docker-compose up -d
 
 ## Architecture
 
-This is a Spring Boot State Machine demo for order management with Fork/Join parallel validation:
+This is a Spring Boot State Machine demo for order initialization with Fork/Join pattern:
 
-- **Domain Layer**: Order entity, OrderStatus enum, OrderEvent enum, ValidationStatus enum
+- **Domain Layer**: Order entity, OrderStatus enum, OrderEvent enum
 - **Repository Layer**: JPA repositories
 - **StateMachine Layer**: Fork/Join state machine configuration with persistence
-- **Command Inbox Layer**: Command queuing and serialization for thread-safe state machine access
-- **Service Layer**: Business logic with retry support
+- **TaskSpec Layer**: Task specification with distributed lock support
+- **Service Layer**: Business logic
 - **Controller Layer**: REST APIs
 - **Kafka Layer**: Event-driven communication
-- **Action Layer**: State machine actions (ValidationSubmitAction, InventoryCheckAction, PricingCheckAction)
-- **Scheduler Layer**: DB-Scheduler for task execution and timeout handling
+- **Action Layer**: State machine actions (PrApprovedAction, SendCoeAction, SyncDealAction)
+- **Scheduler Layer**: DB-Scheduler for task execution
+- **Lock Layer**: ShedLock for distributed locking
 
-## State Machine Flow (Fork/Join Parallel Validation)
+## State Machine Flow (Fork/Join Pattern)
 
 ### States
 ```
-CREATED
-  ↓ (Fork: SUBMIT_VALIDATION)
-PENDING_VALIDATION
-  ├→ INVENTORY_CHECK (parallel)
-  └→ PRICING_CHECK (parallel)
-  ↓ (Join: both succeed)
-PENDING_CONFIRMATION
-  ↓ (USER_CONFIRM)
-PENDING_PAYMENT
-  ↓ (PAY)
-PAID
-  ↓ (CONFIRM_PAYMENT)
-PENDING_SHIPMENT
-  ↓ (SHIP)
-SHIPPED
-  ↓ (DELIVER)
-DELIVERED
+INIT (初始状态)
+  ↓ (PR_APPROVED: Kafka消息，保存Order到DB)
+LOCAL_INITIALIZED
+  ↓ (发送COE到Kafka)
+FACTORY_ORDER_SUBMITTED (同步状态到deal服务REST API)
+  ↓ (Fork: 等待工厂事件)
+  ├→ FIRST_VOM_RECEIVED (收到VOM，等待DOM)
+  └→ FIRST_DOM_RECEIVED (收到DOM，等待VOM)
+  ↓ (Join: 两者都收到)
+ORDER_INITIALIZE_SUCCEED
+
+异常分支:
+VOM_FAILED → ORDER_INITIALIZE_FAILED
 ```
 
-### Parallel Validation
-- **Fork State**: `PENDING_VALIDATION` - Entry point for parallel validation
-- **Parallel States**: `INVENTORY_CHECK` and `PRICING_CHECK` run simultaneously
-- **Join State**: `PENDING_CONFIRMATION` - Reached when both validations succeed
-- **Failure**: Either validation failure leads to `CANCELLED`
-- **Retry**: Max 3 retries via `POST /api/orders/{id}/retry-validation`
-- **Timeout**: 10 minutes (configurable)
+### Fork/Join Pattern
+- **Fork State**: `FACTORY_ORDER_SUBMITTED` - Entry point for parallel waiting
+- **Parallel States**: `FIRST_VOM_RECEIVED` and `FIRST_DOM_RECEIVED` wait for each other
+- **Join State**: `ORDER_INITIALIZE_SUCCEED` - Reached when both VOM and DOM received
+- **Failure**: `VOM_FAILED` event leads to `ORDER_INITIALIZE_FAILED`
 
-### Events Triggered By
-- **AUTO**: `SUBMIT_VALIDATION` - Automatically triggered after order creation
-- **Kafka**: `INVENTORY_SUCCESS`, `INVENTORY_FAILED`, `PRICING_SUCCESS`, `PRICING_FAILED`, `CONFIRM_PAYMENT`, `SHIP`, `DELIVER`, `REFUND`, `INVENTORY_MODIFIED`
-- **HTTP**: `USER_CONFIRM`, `USER_REJECT`, `PAY`, `CANCEL`, `MODIFY_ORDER`, `RETRY_VALIDATION`
+### Events
+| Event | 来源 | 触发 |
+|-------|------|------|
+| PR_APPROVED | Kafka (pr.approved) | INIT → LOCAL_INITIALIZED |
+| VOM | Kafka (factory.vom) | FACTORY_ORDER_SUBMITTED → FIRST_VOM_RECEIVED |
+| DOM | Kafka (factory.dom) | FACTORY_ORDER_SUBMITTED → FIRST_DOM_RECEIVED |
+| VOM_FAILED | Kafka (factory.vom.failed) | * → ORDER_INITIALIZE_FAILED |
 
-### Inventory Service Modification
-- Only allowed in `PENDING_CONFIRMATION` and `PENDING_PAYMENT` states
-- Triggered by Kafka topic `inventory.order.modified`
-- Results in order update and notification
+### Kafka Topics
+- `pr.approved` - PR审批通过事件
+- `coe.order.created` - COE订单创建事件
+- `factory.vom` - 工厂VOM事件
+- `factory.dom` - 工厂DOM事件
+- `factory.vom.failed` - 工厂VOM失败事件
+- `order.events` - Status change event broadcast
 
 ## Key Configuration
 
@@ -124,15 +150,6 @@ DELIVERED
 order:
   validation:
     max-retries: 3        # Max retry attempts
-    timeout: 10m          # Validation timeout
-
-# Command Inbox Configuration
-command-inbox:
-  enabled: true
-  default-retries: 5
-  cleanup:
-    enabled: true
-    retention-days: 30
 
 # DB-Scheduler Configuration
 db-scheduler:
@@ -142,66 +159,103 @@ db-scheduler:
   heartbeat-interval: 1m
   immediate-execution-enabled: true
   polling-strategy: lock-and-fetch
+
+# ShedLock Configuration (for distributed locking)
+shedlock:
+  enabled: true
 ```
 
-### Kafka Topics
-- `inventory.check.request/response` - Inventory validation
-- `pricing.request/response` - Pricing validation  
-- `inventory.order.modified` - Inventory service modifications
-- `payment.confirmed` - Payment confirmation
-- `order.shipped` - Shipping notification
-- `order.delivered` - Delivery notification
-- `order.refunded` - Refund notification
-- `order.events` - Status change event broadcast
+## TaskSpec Pattern
 
-## Key Implementation Files
-
-- `StateMachineConfig.kt` - Fork/Join state machine configuration
-- `ValidationSubmitAction.kt` - Sends parallel validation requests
-- `InventoryCheckAction.kt` - Handles inventory check state
-- `PricingCheckAction.kt` - Handles pricing check state
-- `OrderEventConsumer.kt` - Kafka event consumer
-- `OrderService.kt` - Business logic with validation retry
-- `Order.kt` - Domain entity with validation tracking fields
-
-## Command Inbox Pattern (Thread Safety)
-
-Spring State Machine is not thread-safe. To ensure sequential processing of state transitions for the same order, all state machine events must go through the Command Inbox:
+Simplified task scheduling with distributed lock support:
 
 ### Architecture
 ```
-HTTP/Kafka → CommandInboxService → DB → DB-Scheduler → StateMachineService
-                                        (One Task per Order)
-```
+TaskSpec<P> (interface)
+    └── LockingTaskSpec<P> (abstract, ShedLock)
+            └── OrderStateMachineTaskSpec (concrete)
 
-### Key Design
-- **One Task per Order**: DB-Scheduler ensures only one task instance per `task_id` (orderId) can execute at a time
-- **Task Execution**: Task loops through pending commands for an order sequentially
-- **Self-Rescheduling**: After processing a command, Task waits 100ms then checks for more commands
+TaskScheduler -> SchedulerClient -> scheduled_tasks table
+```
 
 ### Key Components
-- `CommandInbox.kt` - Command entity with deduplication, priority, expiration
-- `CommandInboxService.kt` - Submit and manage commands
-- `SchedulerTaskConfig.kt` - OrderStateMachineTask definition
-- `ValidationTimeoutService.kt` - Timeout scheduling
+- `TaskSpec<P>` - Interface defining task type, maxRetries, execution logic
+- `LockingTaskSpec<P>` - Abstract class with ShedLock distributed lock
+- `TaskScheduler` - Facade wrapping db-scheduler's SchedulerClient
+- `TaskSpecAdapterFactory` - Converts TaskSpec to db-scheduler OneTimeTask
+- `TaskSpecAutoConfiguration` - Auto-registers TaskSpec beans
 
-### Command Priority Levels
-- `URGENT (200)`: CANCEL, REFUND, PAYMENT operations
-- `HIGH (100)`: Validation, confirmation operations  
-- `NORMAL (0)`: Standard operations
-
-### Command Status Flow
+### Usage Example
+```kotlin
+@Component
+class OrderStateMachineTaskSpec(
+    stateMachineService: StateMachineService,
+    lockProvider: LockProvider
+) : LockingTaskSpec<OrderEventPayload>(
+    taskName = "order-state-machine",
+    maxRetries = 5,
+    lockProvider = lockProvider,
+    lockKeyProvider = { ctx -> "order:${ctx.payload.orderId}" }
+) {
+    override fun executeWithLock(context: TaskContext<OrderEventPayload>): TaskResult {
+        stateMachineService.sendEvent(context.payload.orderId, context.payload.event)
+        return TaskResult.success()
+    }
+}
 ```
-PENDING → PROCESSING → COMPLETED
-                    → SKIPPED (state machine rejected)
-                    → EXPIRED
+
+### Submitting Tasks
+```kotlin
+taskScheduler.submit(
+    spec = orderStateMachineTaskSpec,
+    instanceId = "order-123-PR_APPROVED-${UUID.randomUUID()}",
+    payload = OrderEventPayload(123L, OrderEvent.PR_APPROVED)
+)
 ```
 
-### Execution Guarantee
-1. Each order has exactly one active Task (`task_id = orderId`)
-2. DB-Scheduler uses `SELECT FOR UPDATE` to ensure single-threaded execution per task
-3. Task processes commands in order: `priority DESC, id ASC`
-4. Failed commands are marked SKIPPED, Task continues to next command
-5. Task ends when no more PENDING commands exist
+## Key Implementation Files
 
-See `doc/adr/001-command-inbox-pattern.md` for full ADR.
+### State Machine
+- `StateMachineConfig.kt` - Fork/Join state machine configuration
+- `PrApprovedAction.kt` - Saves Order from PR_APPROVED event
+- `SendCoeAction.kt` - Sends COE to Kafka
+- `SyncDealAction.kt` - Syncs order to deal service
+- `OrderEventConsumer.kt` - Kafka event consumer
+- `OrderService.kt` - Business logic
+
+### TaskSpec
+- `task/spec/TaskSpec.kt` - Core interface
+- `task/spec/LockingTaskSpec.kt` - Distributed lock wrapper
+- `task/spec/TaskContext.kt` - Execution context
+- `task/spec/TaskResult.kt` - Result sealed class
+- `task/scheduler/TaskScheduler.kt` - Submit tasks
+- `task/scheduler/TaskSpecAdapterFactory.kt` - Adapter
+- `task/scheduler/ShedLockConfig.kt` - ShedLock configuration
+- `order/task/OrderStateMachineTaskSpec.kt` - Order state machine task
+
+### Tables
+- `scheduled_tasks` - db-scheduler native table
+- `shedlock` - ShedLock lock table
+- `orders` - Order entity
+- `state_machine` - State machine persistence
+
+## Code Quality
+
+### Suppressing Deprecation Warnings
+The following deprecation warnings are intentionally suppressed:
+
+1. **db-scheduler `schedule()` method** - Suppressed in `TaskScheduler.kt` and `TaskSchedulerTest.kt`
+   ```kotlin
+   @Suppress("DEPRECATION")  // db-scheduler's schedule() is deprecated but still functional
+   fun <P : Serializable> submit(...) { ... }
+   ```
+
+2. **testcontainers KafkaContainer** - Suppressed in `IntegrationTestConfig.kt`
+   ```kotlin
+   @file:Suppress("DEPRECATION")  // Using legacy KafkaContainer for compatibility
+   ```
+
+### Conventions
+- Use `requireNotNull()` or explicit null checks instead of `!!` force unwrap
+- Use short class names with imports instead of fully qualified class names
+- No unused code - remove deprecated methods when replacing with newer API

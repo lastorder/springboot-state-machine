@@ -1,0 +1,23 @@
+package com.example.statemachine
+
+import com.example.statemachine.domain.repository.OrderRepository
+import com.example.statemachine.integration.IntegrationTestConfig
+import org.junit.jupiter.api.Assertions
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.context.annotation.Import
+import org.springframework.test.context.ActiveProfiles
+
+@SpringBootTest
+@Import(IntegrationTestConfig::class)
+@ActiveProfiles("integration")
+class OrderStateMachineApplicationTests {
+    @Autowired
+    private lateinit var orderRepository: OrderRepository
+
+    @Test
+    fun contextLoads() {
+        Assertions.assertNotNull(orderRepository)
+    }
+}

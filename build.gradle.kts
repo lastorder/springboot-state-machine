@@ -23,6 +23,32 @@ repositories {
 
 extra["springStateMachineVersion"] = "4.0.2"
 extra["dbSchedulerVersion"] = "16.12.0"
+extra["shedLockVersion"] = "6.2.0"
+
+sourceSets {
+    create("integrationTest") {
+        kotlin {
+            srcDir("src/integrationTest/kotlin")
+            compileClasspath += main.get().output + test.get().output
+            runtimeClasspath += main.get().output + test.get().output
+        }
+        resources {
+            srcDir("src/integrationTest/resources")
+        }
+    }
+}
+
+tasks.withType<ProcessResources> {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+val integrationTestImplementation by configurations.getting {
+    extendsFrom(configurations.testImplementation.get())
+}
+
+val integrationTestRuntimeOnly by configurations.getting {
+    extendsFrom(configurations.testRuntimeOnly.get())
+}
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
@@ -36,21 +62,28 @@ dependencies {
 
     implementation("com.github.kagkarlsson:db-scheduler-spring-boot-starter:${property("dbSchedulerVersion")}")
 
+    implementation("net.javacrumbs.shedlock:shedlock-spring:${property("shedLockVersion")}")
+    implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:${property("shedLockVersion")}")
+
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
 
     runtimeOnly("org.postgresql:postgresql")
 
+    // Unit test dependencies
     testImplementation("org.springframework.boot:spring-boot-starter-test")
-    testImplementation("org.springframework.kafka:spring-kafka-test")
-    testImplementation("org.springframework.statemachine:spring-statemachine-test:${property("springStateMachineVersion")}")
     testImplementation("io.mockk:mockk:1.14.2")
     testImplementation("com.ninja-squad:springmockk:4.0.2")
-    testImplementation("org.testcontainers:testcontainers:1.21.1")
-    testImplementation("org.testcontainers:junit-jupiter:1.21.1")
-    testImplementation("org.testcontainers:postgresql:1.21.1")
-    testImplementation("org.testcontainers:kafka:1.21.1")
+    testImplementation("org.springframework.statemachine:spring-statemachine-test:${property("springStateMachineVersion")}")
+
+    // Integration test dependencies (Testcontainers)
+    "integrationTestImplementation"("org.springframework.boot:spring-boot-testcontainers")
+    "integrationTestImplementation"("org.testcontainers:testcontainers:1.21.1")
+    "integrationTestImplementation"("org.testcontainers:junit-jupiter:1.21.1")
+    "integrationTestImplementation"("org.testcontainers:postgresql:1.21.1")
+    "integrationTestImplementation"("org.testcontainers:kafka:1.21.1")
+    "integrationTestImplementation"("org.springframework.kafka:spring-kafka-test")
 
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -70,11 +103,30 @@ allOpen {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+tasks.test {
+    description = "Runs unit tests."
+    group = "verification"
+    systemProperty("spring.profiles.active", "unit")
     finalizedBy(tasks.jacocoTestReport)
 }
 
+tasks.register<Test>("integrationTest") {
+    description = "Runs integration tests."
+    group = "verification"
+    testClassesDirs = sourceSets["integrationTest"].output.classesDirs
+    classpath = sourceSets["integrationTest"].runtimeClasspath
+    useJUnitPlatform()
+    systemProperty("spring.profiles.active", "integration")
+    shouldRunAfter(tasks.test)
+}
+
+tasks.check {
+    dependsOn(tasks.named("integrationTest"))
+}
+
 tasks.jacocoTestReport {
-    dependsOn(tasks.test)
     reports {
         xml.required.set(true)
         html.required.set(true)

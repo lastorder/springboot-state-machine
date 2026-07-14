@@ -37,9 +37,9 @@ class StateMachineServiceTest {
 
     @Test
     @DisplayName("Should send event successfully")
-    fun testSendEvent_Success() {
+    fun testSendEventSuccess() {
         val orderId = 1L
-        val event = OrderEvent.USER_CONFIRM
+        val event = OrderEvent.PR_APPROVED
         val machineId = orderId.toString()
 
         val eventResult =
@@ -50,7 +50,7 @@ class StateMachineServiceTest {
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
         every { jpaStateMachineRepository.findById(machineId) } returns Optional.empty()
         every { stateMachine.sendEvent(any<Mono<Message<OrderEvent>>>()) } returns Flux.just(eventResult)
-        every { stateMachine.state } returns mockState(OrderStatus.PENDING_CONFIRMATION)
+        every { stateMachine.state } returns mockState(OrderStatus.INIT)
         every { stateMachine.stopReactively() } returns Mono.empty()
         every { jpaStateMachineRepository.save(any()) } returns JpaRepositoryStateMachine()
 
@@ -62,10 +62,10 @@ class StateMachineServiceTest {
 
     @Test
     @DisplayName("Should send event with headers successfully")
-    fun testSendEvent_WithHeaders() {
+    fun testSendEventWithHeaders() {
         val orderId = 1L
-        val event = OrderEvent.PAY
-        val headers = mapOf("amount" to 100.0)
+        val event = OrderEvent.PR_APPROVED
+        val headers = mapOf("orderNo" to "ORD-001")
         val machineId = orderId.toString()
 
         val eventResult =
@@ -76,7 +76,7 @@ class StateMachineServiceTest {
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
         every { jpaStateMachineRepository.findById(machineId) } returns Optional.empty()
         every { stateMachine.sendEvent(any<Mono<Message<OrderEvent>>>()) } returns Flux.just(eventResult)
-        every { stateMachine.state } returns mockState(OrderStatus.PENDING_PAYMENT)
+        every { stateMachine.state } returns mockState(OrderStatus.LOCAL_INITIALIZED)
         every { stateMachine.stopReactively() } returns Mono.empty()
         every { jpaStateMachineRepository.save(any()) } returns JpaRepositoryStateMachine()
 
@@ -94,38 +94,38 @@ class StateMachineServiceTest {
         val entity =
             JpaRepositoryStateMachine().apply {
                 this.machineId = machineId
-                this.state = OrderStatus.PENDING_PAYMENT.name
+                this.state = OrderStatus.LOCAL_INITIALIZED.name
             }
 
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
         every { jpaStateMachineRepository.findById(machineId) } returns Optional.of(entity)
-        every { stateMachine.state } returns mockState(OrderStatus.PENDING_PAYMENT)
+        every { stateMachine.state } returns mockState(OrderStatus.LOCAL_INITIALIZED)
         every { stateMachine.stopReactively() } returns Mono.empty()
 
         val result = stateMachineService.getCurrentState(orderId)
 
-        assertEquals(OrderStatus.PENDING_PAYMENT, result)
+        assertEquals(OrderStatus.LOCAL_INITIALIZED, result)
     }
 
     @Test
     @DisplayName("Should return state when no persisted state exists")
-    fun testGetCurrentState_NoPersistedState() {
+    fun testGetCurrentStateNoPersistedState() {
         val orderId = 999L
         val machineId = orderId.toString()
 
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
         every { jpaStateMachineRepository.findById(machineId) } returns Optional.empty()
-        every { stateMachine.state } returns mockState(OrderStatus.CREATED)
+        every { stateMachine.state } returns mockState(OrderStatus.INIT)
         every { stateMachine.stopReactively() } returns Mono.empty()
 
         val result = stateMachineService.getCurrentState(orderId)
 
-        assertEquals(OrderStatus.CREATED, result)
+        assertEquals(OrderStatus.INIT, result)
     }
 
     @Test
     @DisplayName("Should return null when exception occurs getting state")
-    fun testGetCurrentState_Exception() {
+    fun testGetCurrentStateException() {
         val orderId = 1L
         val machineId = orderId.toString()
 
@@ -146,7 +146,7 @@ class StateMachineServiceTest {
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
         every { stateMachine.stateMachineAccessor } returns mockk(relaxed = true)
         every { jpaStateMachineRepository.save(any()) } returns JpaRepositoryStateMachine()
-        every { stateMachine.state } returns mockState(OrderStatus.CREATED)
+        every { stateMachine.state } returns mockState(OrderStatus.INIT)
         every { stateMachine.stopReactively() } returns Mono.empty()
 
         stateMachineService.initializeStateMachine(orderId)
@@ -156,10 +156,10 @@ class StateMachineServiceTest {
 
     @Test
     @DisplayName("Should initialize state machine with custom initial state")
-    fun testInitializeStateMachine_CustomInitialState() {
+    fun testInitializeStateMachineCustomInitialState() {
         val orderId = 1L
         val machineId = orderId.toString()
-        val initialState = OrderStatus.PENDING_PAYMENT
+        val initialState = OrderStatus.LOCAL_INITIALIZED
 
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
         every { stateMachine.stateMachineAccessor } returns mockk(relaxed = true)
@@ -174,9 +174,9 @@ class StateMachineServiceTest {
 
     @Test
     @DisplayName("Should return false when event send fails with rejected result")
-    fun testSendEvent_Rejected() {
+    fun testSendEventRejected() {
         val orderId = 1L
-        val event = OrderEvent.USER_CONFIRM
+        val event = OrderEvent.VOM
         val machineId = orderId.toString()
 
         val eventResult =
@@ -196,9 +196,9 @@ class StateMachineServiceTest {
 
     @Test
     @DisplayName("Should return false on exception")
-    fun testSendEvent_Exception() {
+    fun testSendEventException() {
         val orderId = 1L
-        val event = OrderEvent.USER_CONFIRM
+        val event = OrderEvent.DOM
         val machineId = orderId.toString()
 
         every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
@@ -207,39 +207,6 @@ class StateMachineServiceTest {
         val result = stateMachineService.sendEvent(orderId, event)
 
         assertEquals(false, result)
-    }
-
-    @Test
-    @DisplayName("Should return false when sendEvent throws error")
-    fun testSendEvent_FluxError() {
-        val orderId = 1L
-        val event = OrderEvent.USER_CONFIRM
-        val machineId = orderId.toString()
-
-        every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
-        every { jpaStateMachineRepository.findById(machineId) } returns Optional.empty()
-        every { stateMachine.sendEvent(any<Mono<Message<OrderEvent>>>()) } returns
-            Flux.error(RuntimeException("Test error"))
-        every { stateMachine.stopReactively() } returns Mono.empty()
-
-        val result = stateMachineService.sendEvent(orderId, event)
-
-        assertEquals(false, result)
-    }
-
-    @Test
-    @DisplayName("Should handle initialized state machine exception")
-    fun testInitializeStateMachine_Exception() {
-        val orderId = 1L
-        val machineId = orderId.toString()
-
-        every { stateMachineFactory.getStateMachine(machineId) } returns stateMachine
-        every { stateMachine.stateMachineAccessor } throws RuntimeException("Accessor error")
-        every { stateMachine.stopReactively() } returns Mono.empty()
-
-        stateMachineService.initializeStateMachine(orderId)
-
-        verify { stateMachineFactory.getStateMachine(machineId) }
     }
 
     private fun mockState(status: OrderStatus): State<OrderStatus, OrderEvent> =

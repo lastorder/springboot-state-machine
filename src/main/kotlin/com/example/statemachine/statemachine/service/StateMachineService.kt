@@ -78,7 +78,7 @@ class StateMachineService(
 
     fun initializeStateMachine(
         orderId: Long,
-        initialState: OrderStatus = OrderStatus.CREATED,
+        initialState: OrderStatus = OrderStatus.INIT,
     ) {
         val machineId = orderId.toString()
         val stateMachine = stateMachineFactory.getStateMachine(machineId)

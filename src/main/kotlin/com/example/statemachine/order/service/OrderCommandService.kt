@@ -1,38 +1,29 @@
 package com.example.statemachine.order.service
 
-import com.example.statemachine.commandinbox.domain.Command
-import com.example.statemachine.commandinbox.domain.CommandPriority
-import com.example.statemachine.commandinbox.dto.CommandMetadata
-import com.example.statemachine.commandinbox.dto.CommandSubmitResult
-import com.example.statemachine.commandinbox.service.CommandBus
 import com.example.statemachine.domain.enums.OrderEvent
-import com.example.statemachine.order.handler.OrderStateMachineSpec
+import com.example.statemachine.order.task.OrderEventPayload
+import com.example.statemachine.order.task.OrderStateMachineTaskSpec
+import com.example.statemachine.task.scheduler.TaskScheduler
 import org.springframework.stereotype.Service
+import java.util.UUID
 
 @Service
 class OrderCommandService(
-    private val commandBus: CommandBus,
-    private val orderStateMachineSpec: OrderStateMachineSpec,
+    private val taskScheduler: TaskScheduler,
+    private val orderStateMachineTaskSpec: OrderStateMachineTaskSpec,
 ) {
     fun submitOrderEvent(
         orderId: Long,
         event: OrderEvent,
         headers: Map<String, Any?> = emptyMap(),
-        metadata: CommandMetadata? = null,
-        idempotencyKey: String? = null,
-        priority: CommandPriority? = null,
-    ): CommandSubmitResult =
-        orderStateMachineSpec.submit(
-            orderId = orderId,
-            event = event,
-            headers = headers,
-            metadata = metadata,
-            idempotencyKey = idempotencyKey,
-            priority = priority,
-        )
+    ) {
+        val instanceId = generateInstanceId(orderId, event)
+        val payload = OrderEventPayload(orderId, event, headers)
+        taskScheduler.submit(orderStateMachineTaskSpec, instanceId, payload)
+    }
 
-    fun getCommandStatus(
+    private fun generateInstanceId(
         orderId: Long,
-        commandId: Long,
-    ): Command? = commandBus.getCommandStatus(orderId.toString(), commandId)
+        event: OrderEvent,
+    ): String = "order-$orderId-${event.name}-${UUID.randomUUID()}"
 }

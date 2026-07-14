@@ -119,10 +119,18 @@
             color: #ecf0f1;
             padding: 20px;
             border-radius: 8px;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 13px;
             overflow-x: auto;
             margin: 15px 0;
+        }
+        
+        .code-block pre {
+            background: transparent;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+            margin: 0;
+            padding: 0;
+            color: #ecf0f1;
         }
         
         .highlight {
@@ -155,18 +163,6 @@
             font-size: 14px;
         }
         
-        .two-column {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-        
-        @media (max-width: 768px) {
-            .two-column {
-                grid-template-columns: 1fr;
-            }
-        }
-        
         .event-tag {
             display: inline-block;
             padding: 2px 8px;
@@ -178,11 +174,6 @@
         
         .tag-kafka {
             background: #9b59b6;
-            color: white;
-        }
-        
-        .tag-http {
-            background: #e74c3c;
             color: white;
         }
         
@@ -202,19 +193,20 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔄 订单状态机设计文档 (Fork/Join 并行验证版)</h1>
+        <h1>🔄 订单初始化状态机设计文档 (Fork/Join 并行等待版)</h1>
         
         <div class="section">
             <h2>1. 状态机总览</h2>
-            <p>本设计使用 Fork/Join 模式实现库存检查和报价的并行验证，提高订单处理效率。</p>
+            <p>本设计使用 Fork/Join 模式实现订单初始化流程，等待工厂系统返回 VOM 和 DOM 事件。</p>
             
             <div class="highlight">
                 <strong>核心特性：</strong>
                 <ul>
-                    <li>并行验证：库存检查和报价同时进行</li>
-                    <li>Fork/Join 模式：两个验证分支并行执行，都成功后才进入下一阶段</li>
-                    <li>手动重试：验证失败后可手动触发重试（最多3次）</li>
-                    <li>超时控制：验证超时自动取消订单</li>
+                    <li>订单初始化：PR审批通过后开始本地初始化</li>
+                    <li>Fork/Join 模式：VOM 和 DOM 事件并行等待，两者都收到后才完成</li>
+                    <li>COE 发送：本地初始化后发送 COE 到 Kafka</li>
+                    <li>Deal 同步：提交工厂订单后同步状态到 Deal 服务</li>
+                    <li>失败处理：VOM_FAILED 事件直接导致初始化失败</li>
                 </ul>
             </div>
             
@@ -223,108 +215,87 @@
 stateDiagram-v2
     direction TB
     
-    [*] --> CREATED: 创建订单
+    [*] --> INIT: 订单创建
     
-    state "Fork/Join 并行验证" as parallel_validation {
-        state "PENDING_VALIDATION<br/>(Fork State)" as fork_state
-        state "INVENTORY_CHECK<br/>(库存检查)" as inv_check
-        state "PRICING_CHECK<br/>(报价检查)" as price_check
+    state "Fork/Join 并行等待" as parallel_wait {
+        state "FACTORY_ORDER_SUBMITTED<br/>(Fork State)" as fork_state
+        state "FIRST_VOM_RECEIVED<br/>(等待 DOM)" as vom_received
+        state "FIRST_DOM_RECEIVED<br/>(等待 VOM)" as dom_received
         
-        fork_state --> inv_check
-        fork_state --> price_check
+        fork_state --> vom_received: VOM
+        fork_state --> dom_received: DOM
         
-        inv_check --> [*] : INVENTORY_SUCCESS
-        price_check --> [*] : PRICING_SUCCESS
+        vom_received --> [*]: DOM
+        dom_received --> [*]: VOM
     }
     
-    CREATED --> fork_state: SUBMIT_VALIDATION<br/>触发并行验证
-    CREATED --> CANCELLED: CANCEL<br/>取消订单
+    INIT --> LOCAL_INITIALIZED: PR_APPROVED<br/>保存订单到 DB
+    LOCAL_INITIALIZED --> fork_state: 发送 COE 到 Kafka
     
-    state "PENDING_CONFIRMATION<br/>(Join State)" as pending_confirm
+    parallel_wait --> ORDER_INITIALIZE_SUCCEED: Join 成功
     
-    parallel_validation --> pending_confirm: 两个分支都成功
+    fork_state --> ORDER_INITIALIZE_FAILED: VOM_FAILED
+    vom_received --> ORDER_INITIALIZE_FAILED: VOM_FAILED
+    dom_received --> ORDER_INITIALIZE_FAILED: VOM_FAILED
     
-    state validation_failed <<choice>>
-    parallel_validation --> validation_failed
-    validation_failed --> CANCELLED: INVENTORY_FAILED<br/>库存失败
-    validation_failed --> CANCELLED: PRICING_FAILED<br/>报价失败
-    validation_failed --> CANCELLED: VALIDATION_TIMEOUT<br/>验证超时
-    validation_failed --> CREATED: RETRY_VALIDATION<br/>重试验证
-    
-    state user_decision <<choice>>
-    pending_confirm --> user_decision
-    user_decision --> PENDING_PAYMENT: USER_CONFIRM<br/>用户确认
-    user_decision --> REJECTED: USER_REJECT<br/>用户拒绝
-    user_decision --> CREATED: MODIFY_ORDER<br/>用户修改订单
-    
-    PENDING_PAYMENT --> PAID: PAY<br/>支付成功
-    PENDING_PAYMENT --> CREATED: MODIFY_ORDER<br/>修改订单
-    PENDING_PAYMENT --> CANCELLED: CANCEL
-    
-    PAID --> PENDING_SHIPMENT: CONFIRM_PAYMENT<br/>支付确认
-    PAID --> REFUNDED: REFUND<br/>退款
-    
-    PENDING_SHIPMENT --> SHIPPED: SHIP<br/>发货
-    PENDING_SHIPMENT --> CANCELLED: CANCEL
-    
-    SHIPPED --> DELIVERED: DELIVER<br/>送达
-    
-    DELIVERED --> REFUNDED: REFUND<br/>退款
-    
-    note right of CREATED
+    note right of INIT
         初始状态
-        创建后触发并行验证
+        等待 PR 审批通过
     end note
     
-    note right of parallel_validation
-        Fork/Join 并行验证:
-        - 库存检查
-        - 报价检查
-        同时进行
+    note right of parallel_wait
+        Fork/Join 并行等待:
+        - VOM 事件
+        - DOM 事件
+        两者都收到才成功
     end note
             </div>
         </div>
         
         <div class="section">
-            <h2>2. Fork/Join 并行验证详解</h2>
+            <h2>2. Fork/Join 并行等待详解</h2>
             
             <div class="fork-join-box">
-                <h3>并行验证流程</h3>
+                <h3>并行等待流程</h3>
                 <div class="mermaid">
 flowchart TB
-    A[订单创建] --> B[SUBMIT_VALIDATION 事件]
-    B --> C[Fork: PENDING_VALIDATION]
+    A[PR 审批通过] --> B[PR_APPROVED 事件]
+    B --> C[INIT → LOCAL_INITIALIZED]
+    C --> D[保存 Order 到 DB]
+    D --> E[发送 COE 到 Kafka]
+    E --> F[LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED]
+    F --> G[同步 Deal 服务 REST API]
     
-    C --> D[INVENTORY_CHECK 分支]
-    C --> E[PRICING_CHECK 分支]
+    G --> H[Fork: FACTORY_ORDER_SUBMITTED]
     
-    D --> D1[发送 inventory.check.request]
-    D1 --> D2{等待 Kafka 响应}
-    D2 -->|成功| D3[INVENTORY_SUCCESS]
-    D2 -->|失败| D4[INVENTORY_FAILED]
+    H --> I[等待 VOM]
+    H --> J[等待 DOM]
     
-    E --> E1[发送 pricing.request]
-    E1 --> E2{等待 Kafka 响应}
-    E2 -->|成功| E3[PRICING_SUCCESS]
-    E2 -->|失败| E4[PRICING_FAILED]
+    I --> K{收到 VOM}
+    K -->|VOM| L[FIRST_VOM_RECEIVED]
+    K -->|VOM_FAILED| M[ORDER_INITIALIZE_FAILED]
     
-    D3 --> F[Join: 等待两个分支]
-    E3 --> F
+    J --> N{收到 DOM}
+    N -->|DOM| O[FIRST_DOM_RECEIVED]
     
-    F --> G[PENDING_CONFIRMATION]
+    L --> P{已有 DOM?}
+    O --> Q{已有 VOM?}
     
-    D4 --> H[CANCELLED]
-    E4 --> H
+    P -->|是| R[Join → ORDER_INITIALIZE_SUCCEED]
+    Q -->|是| R
+    
+    P -->|否| L
+    Q -->|否| O
                 </div>
             </div>
             
-            <p><strong>验证规则：</strong></p>
+            <p><strong>等待规则：</strong></p>
             <ul>
-                <li>库存检查和报价检查同时发送 Kafka 请求</li>
-                <li>两个验证都成功才能进入 PENDING_CONFIRMATION</li>
-                <li>任一验证失败则订单取消</li>
-                <li>验证超时（10分钟）自动取消订单</li>
-                <li>支持手动重试，最多3次</li>
+                <li>FACTORY_ORDER_SUBMITTED 是 Fork 状态，等待 VOM 和 DOM 事件</li>
+                <li>先收到 VOM → 进入 FIRST_VOM_RECEIVED，等待 DOM</li>
+                <li>先收到 DOM → 进入 FIRST_DOM_RECEIVED，等待 VOM</li>
+                <li>两者都收到 → Join 成功，进入 ORDER_INITIALIZE_SUCCEED</li>
+                <li>收到 VOM_FAILED → 直接进入 ORDER_INITIALIZE_FAILED</li>
             </ul>
         </div>
         
@@ -336,100 +307,50 @@ flowchart TB
                         <th>状态</th>
                         <th>名称</th>
                         <th>说明</th>
-                        <th>允许的操作</th>
                         <th>类型</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><code>CREATED</code></td>
-                        <td>已创建</td>
-                        <td>订单刚创建，可触发并行验证</td>
-                        <td>取消、触发验证</td>
+                        <td><code>INIT</code></td>
+                        <td>初始状态</td>
+                        <td>订单刚创建，等待 PR 审批通过</td>
                         <td>初始</td>
                     </tr>
-                    <tr style="background-color: #e8f4fd;">
-                        <td><code>PENDING_VALIDATION</code></td>
-                        <td>并行验证入口 (Fork)</td>
-                        <td>并行验证的 Fork 状态，同时进入两个子状态</td>
-                        <td>取消、重试</td>
-                        <td>复合</td>
+                    <tr>
+                        <td><code>LOCAL_INITIALIZED</code></td>
+                        <td>本地已初始化</td>
+                        <td>PR 审批通过，订单已保存到 DB，准备发送 COE</td>
+                        <td>中间</td>
                     </tr>
                     <tr style="background-color: #e8f4fd;">
-                        <td><code>INVENTORY_CHECK</code></td>
-                        <td>库存检查中</td>
-                        <td>并行验证分支之一：等待库存服务响应</td>
-                        <td>-</td>
+                        <td><code>FACTORY_ORDER_SUBMITTED</code></td>
+                        <td>工厂订单已提交 (Fork)</td>
+                        <td>COE 已发送，Deal 已同步，等待 VOM/DOM</td>
+                        <td>Fork</td>
+                    </tr>
+                    <tr style="background-color: #e8f4fd;">
+                        <td><code>FIRST_VOM_RECEIVED</code></td>
+                        <td>已收到 VOM</td>
+                        <td>等待 DOM 事件</td>
                         <td>子状态</td>
                     </tr>
                     <tr style="background-color: #e8f4fd;">
-                        <td><code>PRICING_CHECK</code></td>
-                        <td>报价检查中</td>
-                        <td>并行验证分支之一：等待报价服务响应</td>
-                        <td>-</td>
+                        <td><code>FIRST_DOM_RECEIVED</code></td>
+                        <td>已收到 DOM</td>
+                        <td>等待 VOM 事件</td>
                         <td>子状态</td>
-                    </tr>
-                    <tr>
-                        <td><code>PENDING_CONFIRMATION</code></td>
-                        <td>待用户确认 (Join)</td>
-                        <td>并行验证完成，等待用户确认</td>
-                        <td>确认、拒绝、修改、取消</td>
-                        <td>中间</td>
-                    </tr>
-                    <tr>
-                        <td><code>PENDING_PAYMENT</code></td>
-                        <td>待支付</td>
-                        <td>用户已确认价格，等待支付</td>
-                        <td>支付、修改、取消</td>
-                        <td>中间</td>
-                    </tr>
-                    <tr>
-                        <td><code>PAID</code></td>
-                        <td>已支付</td>
-                        <td>支付完成，等待支付系统确认</td>
-                        <td>退款</td>
-                        <td>中间</td>
-                    </tr>
-                    <tr>
-                        <td><code>PENDING_SHIPMENT</code></td>
-                        <td>待发货</td>
-                        <td>支付已确认，等待仓库发货</td>
-                        <td>取消</td>
-                        <td>中间</td>
-                    </tr>
-                    <tr>
-                        <td><code>SHIPPED</code></td>
-                        <td>已发货</td>
-                        <td>订单已发货，等待物流送达</td>
-                        <td>-</td>
-                        <td>中间</td>
                     </tr>
                     <tr style="background-color: #d4edda;">
-                        <td><code>DELIVERED</code></td>
-                        <td>已送达</td>
-                        <td>订单已送达客户，流程正常结束</td>
-                        <td>退款</td>
+                        <td><code>ORDER_INITIALIZE_SUCCEED</code></td>
+                        <td>初始化成功 (Join)</td>
+                        <td>VOM 和 DOM 都收到，初始化完成</td>
                         <td>终态</td>
                     </tr>
                     <tr style="background-color: #f8d7da;">
-                        <td><code>CANCELLED</code></td>
-                        <td>已取消</td>
-                        <td>订单已取消（验证失败/超时/用户取消）</td>
-                        <td>-</td>
-                        <td>终态</td>
-                    </tr>
-                    <tr style="background-color: #f8d7da;">
-                        <td><code>REJECTED</code></td>
-                        <td>已拒绝</td>
-                        <td>用户拒绝了订单价格，订单结束</td>
-                        <td>-</td>
-                        <td>终态</td>
-                    </tr>
-                    <tr style="background-color: #fff3cd;">
-                        <td><code>REFUNDED</code></td>
-                        <td>已退款</td>
-                        <td>订单已退款</td>
-                        <td>-</td>
+                        <td><code>ORDER_INITIALIZE_FAILED</code></td>
+                        <td>初始化失败</td>
+                        <td>VOM_FAILED 事件导致失败</td>
                         <td>终态</td>
                     </tr>
                 </tbody>
@@ -445,146 +366,58 @@ flowchart TB
                         <th>触发方式</th>
                         <th>源状态</th>
                         <th>目标状态</th>
-                        <th>Kafka Topic / API</th>
+                        <th>Kafka Topic</th>
                         <th>说明</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><code>SUBMIT_VALIDATION</code></td>
-                        <td><span class="event-tag tag-auto">AUTO</span></td>
-                        <td>CREATED</td>
-                        <td>PENDING_VALIDATION</td>
-                        <td>-</td>
-                        <td>触发 Fork，进入并行验证</td>
-                    </tr>
-                    <tr>
-                        <td><code>INVENTORY_SUCCESS</code></td>
+                        <td><code>PR_APPROVED</code></td>
                         <td><span class="event-tag tag-kafka">Kafka</span></td>
-                        <td>INVENTORY_CHECK</td>
-                        <td>INVENTORY_CHECK</td>
-                        <td>inventory.check.response</td>
-                        <td>库存检查成功（等待 Join）</td>
+                        <td>INIT</td>
+                        <td>LOCAL_INITIALIZED</td>
+                        <td>pr.approved</td>
+                        <td>PR 审批通过，保存订单</td>
                     </tr>
                     <tr>
-                        <td><code>INVENTORY_FAILED</code></td>
+                        <td><code>VOM</code></td>
                         <td><span class="event-tag tag-kafka">Kafka</span></td>
-                        <td>PENDING_VALIDATION</td>
-                        <td>CANCELLED</td>
-                        <td>inventory.check.response</td>
-                        <td>库存检查失败，取消订单</td>
+                        <td>FACTORY_ORDER_SUBMITTED</td>
+                        <td>FIRST_VOM_RECEIVED</td>
+                        <td>factory.vom</td>
+                        <td>收到 VOM 事件</td>
                     </tr>
                     <tr>
-                        <td><code>PRICING_SUCCESS</code></td>
+                        <td><code>VOM</code></td>
                         <td><span class="event-tag tag-kafka">Kafka</span></td>
-                        <td>PRICING_CHECK</td>
-                        <td>PRICING_CHECK</td>
-                        <td>pricing.response</td>
-                        <td>报价成功（等待 Join）</td>
+                        <td>FIRST_DOM_RECEIVED</td>
+                        <td>ORDER_INITIALIZE_SUCCEED</td>
+                        <td>factory.vom</td>
+                        <td>收到 VOM (已有 DOM)，Join 成功</td>
                     </tr>
                     <tr>
-                        <td><code>PRICING_FAILED</code></td>
+                        <td><code>DOM</code></td>
                         <td><span class="event-tag tag-kafka">Kafka</span></td>
-                        <td>PENDING_VALIDATION</td>
-                        <td>CANCELLED</td>
-                        <td>pricing.response</td>
-                        <td>报价失败，取消订单</td>
+                        <td>FACTORY_ORDER_SUBMITTED</td>
+                        <td>FIRST_DOM_RECEIVED</td>
+                        <td>factory.dom</td>
+                        <td>收到 DOM 事件</td>
                     </tr>
                     <tr>
-                        <td><code>VALIDATION_TIMEOUT</code></td>
-                        <td><span class="event-tag tag-auto">AUTO</span></td>
-                        <td>PENDING_VALIDATION</td>
-                        <td>CANCELLED</td>
-                        <td>-</td>
-                        <td>验证超时（10分钟），取消订单</td>
-                    </tr>
-                    <tr>
-                        <td><code>RETRY_VALIDATION</code></td>
-                        <td><span class="event-tag tag-http">HTTP</span></td>
-                        <td>PENDING_VALIDATION</td>
-                        <td>CREATED</td>
-                        <td>POST /api/orders/{id}/retry-validation</td>
-                        <td>手动重试验证（最多3次）</td>
-                    </tr>
-                    <tr>
-                        <td><code>INVENTORY_MODIFIED</code></td>
+                        <td><code>DOM</code></td>
                         <td><span class="event-tag tag-kafka">Kafka</span></td>
-                        <td>PENDING_CONFIRMATION<br/>PENDING_PAYMENT</td>
-                        <td>当前状态/PENDING_CONFIRMATION</td>
-                        <td>inventory.order.modified</td>
-                        <td>库存服务主动修改订单（仅限特定状态）</td>
+                        <td>FIRST_VOM_RECEIVED</td>
+                        <td>ORDER_INITIALIZE_SUCCEED</td>
+                        <td>factory.dom</td>
+                        <td>收到 DOM (已有 VOM)，Join 成功</td>
                     </tr>
                     <tr>
-                        <td><code>USER_CONFIRM</code></td>
-                        <td><span class="event-tag tag-http">HTTP</span></td>
-                        <td>PENDING_CONFIRMATION</td>
-                        <td>PENDING_PAYMENT</td>
-                        <td>POST /api/orders/{id}/confirm</td>
-                        <td>用户确认价格</td>
-                    </tr>
-                    <tr>
-                        <td><code>USER_REJECT</code></td>
-                        <td><span class="event-tag tag-http">HTTP</span></td>
-                        <td>PENDING_CONFIRMATION</td>
-                        <td>REJECTED</td>
-                        <td>POST /api/orders/{id}/reject</td>
-                        <td>用户拒绝价格，订单结束</td>
-                    </tr>
-                    <tr>
-                        <td><code>MODIFY_ORDER</code></td>
-                        <td><span class="event-tag tag-http">HTTP</span></td>
-                        <td>PENDING_CONFIRMATION<br/>PENDING_PAYMENT</td>
-                        <td>CREATED</td>
-                        <td>PATCH /api/orders/{id}</td>
-                        <td>用户修改订单，重新验证</td>
-                    </tr>
-                    <tr>
-                        <td><code>PAY</code></td>
-                        <td><span class="event-tag tag-http">HTTP</span></td>
-                        <td>PENDING_PAYMENT</td>
-                        <td>PAID</td>
-                        <td>POST /api/orders/{id}/pay</td>
-                        <td>用户支付</td>
-                    </tr>
-                    <tr>
-                        <td><code>CONFIRM_PAYMENT</code></td>
+                        <td><code>VOM_FAILED</code></td>
                         <td><span class="event-tag tag-kafka">Kafka</span></td>
-                        <td>PAID</td>
-                        <td>PENDING_SHIPMENT</td>
-                        <td>payment.confirmed</td>
-                        <td>支付系统确认</td>
-                    </tr>
-                    <tr>
-                        <td><code>SHIP</code></td>
-                        <td><span class="event-tag tag-kafka">Kafka</span></td>
-                        <td>PENDING_SHIPMENT</td>
-                        <td>SHIPPED</td>
-                        <td>order.shipped</td>
-                        <td>仓库发货</td>
-                    </tr>
-                    <tr>
-                        <td><code>DELIVER</code></td>
-                        <td><span class="event-tag tag-kafka">Kafka</span></td>
-                        <td>SHIPPED</td>
-                        <td>DELIVERED</td>
-                        <td>order.delivered</td>
-                        <td>物流送达</td>
-                    </tr>
-                    <tr>
-                        <td><code>CANCEL</code></td>
-                        <td><span class="event-tag tag-http">HTTP</span></td>
-                        <td>多个状态</td>
-                        <td>CANCELLED</td>
-                        <td>POST /api/orders/{id}/cancel</td>
-                        <td>用户取消订单</td>
-                    </tr>
-                    <tr>
-                        <td><code>REFUND</code></td>
-                        <td><span class="event-tag tag-kafka">Kafka</span></td>
-                        <td>PAID<br/>DELIVERED</td>
-                        <td>REFUNDED</td>
-                        <td>order.refunded</td>
-                        <td>退款</td>
+                        <td>FACTORY_ORDER_SUBMITTED<br/>FIRST_VOM_RECEIVED<br/>FIRST_DOM_RECEIVED</td>
+                        <td>ORDER_INITIALIZE_FAILED</td>
+                        <td>factory.vom.failed</td>
+                        <td>VOM 失败，初始化失败</td>
                     </tr>
                 </tbody>
             </table>
@@ -604,67 +437,39 @@ flowchart TB
                 </thead>
                 <tbody>
                     <tr style="background-color: #e8f4fd;">
-                        <td><code>inventory.check.request</code></td>
-                        <td>→ 库存服务</td>
-                        <td>InventoryCheckRequest</td>
-                        <td>SUBMIT_VALIDATION (并行发送)</td>
-                        <td>发送库存检查请求</td>
-                    </tr>
-                    <tr style="background-color: #e8f4fd;">
-                        <td><code>inventory.check.response</code></td>
-                        <td>← 库存服务</td>
-                        <td>InventoryCheckResponse</td>
-                        <td>INVENTORY_SUCCESS / INVENTORY_FAILED</td>
-                        <td>库存检查结果</td>
-                    </tr>
-                    <tr style="background-color: #e8f4fd;">
-                        <td><code>inventory.order.modified</code></td>
-                        <td>← 库存服务</td>
-                        <td>InventoryOrderModified</td>
-                        <td>INVENTORY_MODIFIED</td>
-                        <td>库存服务主动修改订单</td>
+                        <td><code>pr.approved</code></td>
+                        <td>← PR 服务</td>
+                        <td>PrApprovedEvent</td>
+                        <td>PR_APPROVED</td>
+                        <td>PR 审批通过事件</td>
                     </tr>
                     <tr style="background-color: #fef9e7;">
-                        <td><code>pricing.request</code></td>
-                        <td>→ 报价服务</td>
-                        <td>PricingRequest</td>
-                        <td>SUBMIT_VALIDATION (并行发送)</td>
-                        <td>发送报价请求</td>
-                    </tr>
-                    <tr style="background-color: #fef9e7;">
-                        <td><code>pricing.response</code></td>
-                        <td>← 报价服务</td>
-                        <td>PricingResponse</td>
-                        <td>PRICING_SUCCESS / PRICING_FAILED</td>
-                        <td>报价结果</td>
-                    </tr>
-                    <tr style="background-color: #fdecea;">
-                        <td><code>payment.confirmed</code></td>
-                        <td>← 支付服务</td>
-                        <td>PaymentConfirmedEvent</td>
-                        <td>CONFIRM_PAYMENT</td>
-                        <td>支付确认</td>
+                        <td><code>coe.order.created</code></td>
+                        <td>→ COE 服务</td>
+                        <td>CoeOrderCreatedEvent</td>
+                        <td>LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED</td>
+                        <td>发送 COE 订单创建事件</td>
                     </tr>
                     <tr style="background-color: #e8f8f5;">
-                        <td><code>order.shipped</code></td>
-                        <td>← 仓库服务</td>
-                        <td>OrderShippedEvent</td>
-                        <td>SHIP</td>
-                        <td>发货通知</td>
+                        <td><code>factory.vom</code></td>
+                        <td>← 工厂服务</td>
+                        <td>VomEvent</td>
+                        <td>VOM</td>
+                        <td>工厂 VOM 事件</td>
                     </tr>
                     <tr style="background-color: #e8f8f5;">
-                        <td><code>order.delivered</code></td>
-                        <td>← 物流服务</td>
-                        <td>OrderDeliveredEvent</td>
-                        <td>DELIVER</td>
-                        <td>送达通知</td>
+                        <td><code>factory.dom</code></td>
+                        <td>← 工厂服务</td>
+                        <td>DomEvent</td>
+                        <td>DOM</td>
+                        <td>工厂 DOM 事件</td>
                     </tr>
-                    <tr style="background-color: #f5eef8;">
-                        <td><code>order.refunded</code></td>
-                        <td>← 退款服务</td>
-                        <td>OrderRefundedEvent</td>
-                        <td>REFUND</td>
-                        <td>退款通知</td>
+                    <tr style="background-color: #f8d7da;">
+                        <td><code>factory.vom.failed</code></td>
+                        <td>← 工厂服务</td>
+                        <td>VomFailedEvent</td>
+                        <td>VOM_FAILED</td>
+                        <td>工厂 VOM 失败事件</td>
                     </tr>
                     <tr style="background-color: #f4f6f6;">
                         <td><code>order.events</code></td>
@@ -678,80 +483,30 @@ flowchart TB
         </div>
         
         <div class="section">
-            <h2>6. REST API</h2>
+            <h2>6. Actions</h2>
             <table>
                 <thead>
                     <tr>
-                        <th>方法</th>
-                        <th>路径</th>
-                        <th>说明</th>
-                        <th>触发事件</th>
-                        <th>请求体</th>
+                        <th>Action</th>
+                        <th>触发状态转换</th>
+                        <th>职责</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td>POST</td>
-                        <td><code>/api/orders</code></td>
-                        <td>创建订单</td>
-                        <td>SUBMIT_VALIDATION (自动)</td>
-                        <td>CreateOrderRequest</td>
+                        <td><code>PrApprovedAction</code></td>
+                        <td>INIT → LOCAL_INITIALIZED</td>
+                        <td>从 Kafka 消息中提取订单信息，保存到 DB</td>
                     </tr>
                     <tr>
-                        <td>GET</td>
-                        <td><code>/api/orders/{id}</code></td>
-                        <td>获取订单详情</td>
-                        <td>-</td>
-                        <td>-</td>
+                        <td><code>SendCoeAction</code></td>
+                        <td>LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED</td>
+                        <td>发送 COE 订单创建事件到 Kafka</td>
                     </tr>
                     <tr>
-                        <td>GET</td>
-                        <td><code>/api/orders</code></td>
-                        <td>获取所有订单列表</td>
-                        <td>-</td>
-                        <td>-</td>
-                    </tr>
-                    <tr>
-                        <td>POST</td>
-                        <td><code>/api/orders/{id}/retry-validation</code></td>
-                        <td>重试验证</td>
-                        <td>RETRY_VALIDATION</td>
-                        <td>-</td>
-                    </tr>
-                    <tr>
-                        <td>PATCH</td>
-                        <td><code>/api/orders/{id}</code></td>
-                        <td>修改订单（商品/数量）</td>
-                        <td>MODIFY_ORDER</td>
-                        <td>ModifyOrderRequest</td>
-                    </tr>
-                    <tr>
-                        <td>POST</td>
-                        <td><code>/api/orders/{id}/confirm</code></td>
-                        <td>用户确认价格</td>
-                        <td>USER_CONFIRM</td>
-                        <td>-</td>
-                    </tr>
-                    <tr>
-                        <td>POST</td>
-                        <td><code>/api/orders/{id}/reject</code></td>
-                        <td>用户拒绝价格</td>
-                        <td>USER_REJECT</td>
-                        <td>-</td>
-                    </tr>
-                    <tr>
-                        <td>POST</td>
-                        <td><code>/api/orders/{id}/pay</code></td>
-                        <td>支付订单</td>
-                        <td>PAY</td>
-                        <td>PaymentRequest</td>
-                    </tr>
-                    <tr>
-                        <td>POST</td>
-                        <td><code>/api/orders/{id}/cancel</code></td>
-                        <td>取消订单</td>
-                        <td>CANCEL</td>
-                        <td>-</td>
+                        <td><code>SyncDealAction</code></td>
+                        <td>FACTORY_ORDER_SUBMITTED (Entry)</td>
+                        <td>同步订单状态到 Deal 服务 (REST API)</td>
                     </tr>
                 </tbody>
             </table>
@@ -760,113 +515,138 @@ flowchart TB
         <div class="section">
             <h2>7. 典型场景示例</h2>
             
-            <h3>7.1 正常完整流程（并行验证）</h3>
+            <h3>7.1 正常完整流程（VOM 先到）</h3>
             <div class="mermaid">
 sequenceDiagram
-    participant U as 用户
-    participant O as 订单服务
-    participant I as 库存服务
-    participant P as 报价服务
+    participant PR as PR 服务
     participant K as Kafka
+    participant O as 订单服务
+    participant COE as COE 服务
+    participant Deal as Deal 服务
+    participant Factory as 工厂服务
     
-    U->>O: POST /api/orders 创建订单
-    O->>O: 状态: CREATED
-    O->>O: 触发 SUBMIT_VALIDATION
-    O->>O: 状态: PENDING_VALIDATION (Fork)
+    PR->>K: pr.approved
+    K->>O: PR_APPROVED
+    O->>O: 状态: INIT → LOCAL_INITIALIZED
+    O->>O: 保存 Order 到 DB
+    O->>O: 状态: LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED
+    O->>K: coe.order.created
+    O->>Deal: REST API: 同步订单
+    O->>O: Fork: 等待 VOM/DOM
     
-    par 并行验证
-        O->>K: inventory.check.request
-        O->>K: pricing.request
-    end
+    Factory->>K: factory.vom
+    K->>O: VOM
+    O->>O: 状态: FACTORY_ORDER_SUBMITTED → FIRST_VOM_RECEIVED
+    Note over O: 等待 DOM...
     
-    O->>O: 子状态: INVENTORY_CHECK + PRICING_CHECK
-    
-    par 并行响应
-        I->>K: inventory.check.response (成功)
-        K->>O: INVENTORY_SUCCESS
-        P->>K: pricing.response (成功)
-        K->>O: PRICING_SUCCESS
-    end
-    
-    O->>O: Join -> 状态: PENDING_CONFIRMATION
-    
-    U->>O: POST /api/orders/{id}/confirm
-    O->>O: 状态: PENDING_PAYMENT
-    
-    U->>O: POST /api/orders/{id}/pay
-    O->>O: 状态: PAID
-    
-    Note over I,P: 支付系统确认...
-    O->>O: 状态: PENDING_SHIPMENT
-    
-    Note over I,P: 仓库发货...
-    O->>O: 状态: SHIPPED
-    
-    Note over I,P: 物流送达...
-    O->>O: 状态: DELIVERED
+    Factory->>K: factory.dom
+    K->>O: DOM
+    O->>O: 状态: FIRST_VOM_RECEIVED → ORDER_INITIALIZE_SUCCEED
+    Note over O: Join 成功！
             </div>
             
-            <h3>7.2 验证失败重试场景</h3>
+            <h3>7.2 正常完整流程（DOM 先到）</h3>
             <div class="mermaid">
 sequenceDiagram
-    participant U as 用户
-    participant O as 订单服务
-    participant I as 库存服务
+    participant Factory as 工厂服务
     participant K as Kafka
+    participant O as 订单服务
     
-    O->>O: 状态: PENDING_VALIDATION
-    O->>K: inventory.check.request
-    O->>K: pricing.request
+    Note over O: 状态: FACTORY_ORDER_SUBMITTED
+    Note over O: Fork: 等待 VOM/DOM
     
-    I->>K: inventory.check.response (失败)
-    K->>O: INVENTORY_FAILED
-    O->>O: 状态: CANCELLED
+    Factory->>K: factory.dom
+    K->>O: DOM
+    O->>O: 状态: FACTORY_ORDER_SUBMITTED → FIRST_DOM_RECEIVED
+    Note over O: 等待 VOM...
     
-    Note over U: 用户决定重试
-    U->>O: POST /api/orders/{id}/retry-validation
-    O->>O: 检查重试次数 < 3
-    O->>O: 重置验证状态
-    O->>O: 状态: CREATED
-    O->>O: 自动触发 SUBMIT_VALIDATION
-    O->>O: 状态: PENDING_VALIDATION
-    O->>K: 重新发送验证请求
+    Factory->>K: factory.vom
+    K->>O: VOM
+    O->>O: 状态: FIRST_DOM_RECEIVED → ORDER_INITIALIZE_SUCCEED
+    Note over O: Join 成功！
             </div>
             
-            <h3>7.3 库存服务主动修改场景</h3>
+            <h3>7.3 VOM 失败场景</h3>
             <div class="mermaid">
 sequenceDiagram
-    participant I as 库存服务
+    participant Factory as 工厂服务
     participant K as Kafka
     participant O as 订单服务
-    participant U as 用户
     
-    Note over O: 状态: PENDING_CONFIRMATION 或 PENDING_PAYMENT
+    Note over O: 状态: FACTORY_ORDER_SUBMITTED
+    Note over O: Fork: 等待 VOM/DOM
     
-    Note over I: 商品A缺货<br/>推荐商品B
-    I->>K: inventory.order.modified<br/>{product: "商品B", quantity: 1}
-    K->>O: INVENTORY_MODIFIED
-    O->>O: 更新订单信息
-    
-    alt 在 PENDING_CONFIRMATION 状态
-        O->>O: 状态保持: PENDING_CONFIRMATION
-    else 在 PENDING_PAYMENT 状态
-        O->>O: 状态变为: PENDING_CONFIRMATION
-    end
-    
-    Note over U: 用户看到修改后的订单
-    
-    alt 用户接受
-        U->>O: POST /api/orders/{id}/confirm
-        O->>O: 状态: PENDING_PAYMENT
-    else 用户拒绝
-        U->>O: POST /api/orders/{id}/reject
-        O->>O: 状态: REJECTED
-    end
+    Factory->>K: factory.vom.failed
+    K->>O: VOM_FAILED
+    O->>O: 状态: FACTORY_ORDER_SUBMITTED → ORDER_INITIALIZE_FAILED
+    Note over O: 初始化失败！
             </div>
         </div>
         
         <div class="section">
-            <h2>8. 配置参数</h2>
+            <h2>8. TaskSpec 模式</h2>
+            <p>项目使用 TaskSpec 模式处理异步事件，结合 db-scheduler 和 ShedLock 实现分布式任务调度。</p>
+            
+            <h3>8.1 架构</h3>
+            <div class="mermaid">
+graph LR
+    A[Kafka Event] --> B[OrderCommandService]
+    B --> C[TaskScheduler]
+    C --> D[(scheduled_tasks)]
+    D --> E[OrderStateMachineTaskSpec]
+    E --> F[StateMachineService]
+    F --> G[状态机]
+            </div>
+            
+            <h3>8.2 关键组件</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>组件</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>TaskSpec&lt;P&gt;</code></td>
+                        <td>任务规格接口，定义任务名称、最大重试次数、执行逻辑</td>
+                    </tr>
+                    <tr>
+                        <td><code>LockingTaskSpec&lt;P&gt;</code></td>
+                        <td>带分布式锁的任务规格，使用 ShedLock</td>
+                    </tr>
+                    <tr>
+                        <td><code>OrderStateMachineTaskSpec</code></td>
+                        <td>订单状态机任务，处理 VOM/DOM 事件</td>
+                    </tr>
+                    <tr>
+                        <td><code>TaskScheduler</code></td>
+                        <td>任务调度器，封装 db-scheduler 的 scheduleIfNotExists</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <h3>8.3 TaskScheduler API</h3>
+            <div class="code-block">
+<pre>
+// 提交任务（返回 Boolean 表示是否成功调度）
+val scheduled = taskScheduler.submit(
+    spec = orderStateMachineTaskSpec,
+    instanceId = "order-123-VOM-${UUID.randomUUID()}",
+    payload = OrderEventPayload(orderId = 123L, event = OrderEvent.VOM)
+)
+
+// 取消任务
+taskScheduler.cancel(
+    taskName = "order-state-machine",
+    instanceId = "order-123-VOM-xxx"
+)
+</pre>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>9. 配置参数</h2>
             <table>
                 <thead>
                     <tr>
@@ -882,16 +662,26 @@ sequenceDiagram
                         <td>验证失败后最大重试次数</td>
                     </tr>
                     <tr>
-                        <td><code>order.validation.timeout</code></td>
-                        <td>10m</td>
-                        <td>验证超时时间</td>
+                        <td><code>db-scheduler.enabled</code></td>
+                        <td>true</td>
+                        <td>是否启用 db-scheduler</td>
+                    </tr>
+                    <tr>
+                        <td><code>db-scheduler.threads</code></td>
+                        <td>5</td>
+                        <td>执行线程数</td>
+                    </tr>
+                    <tr>
+                        <td><code>db-scheduler.polling-interval</code></td>
+                        <td>5s</td>
+                        <td>扫描间隔</td>
                     </tr>
                 </tbody>
             </table>
         </div>
         
         <div class="footer">
-            <p>生成时间：2026-07-12 | Spring Boot State Machine 订单管理系统 (Fork/Join 并行验证版)</p>
+            <p>生成时间：2026-07-14 | Spring Boot State Machine 订单初始化系统 (Fork/Join 并行等待版)</p>
         </div>
     </div>
     
