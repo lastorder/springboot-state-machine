@@ -24,8 +24,8 @@ abstract class LockingTaskSpec<P : Serializable>(
         val lock = lockProvider.lock(lockConfig)
 
         if (lock.isEmpty) {
-            log.debug("Lock unavailable for {}, returning retry", lockKey)
-            return TaskResult.retry("Lock unavailable: $lockKey")
+            log.debug("Lock unavailable for {}", lockKey)
+            return TaskResult.fail("Lock unavailable: $lockKey", retryable = true)
         }
 
         return try {

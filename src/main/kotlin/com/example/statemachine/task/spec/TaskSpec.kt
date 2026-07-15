@@ -2,17 +2,20 @@ package com.example.statemachine.task.spec
 
 import org.slf4j.LoggerFactory
 import java.io.Serializable
+import java.time.Duration
 
 interface TaskSpec<P : Serializable> {
     val taskName: String
     val maxRetries: Int
         get() = 3
+    val retryStrategy: RetryStrategy
+        get() = RetryStrategy.FixedDelay(Duration.ofMinutes(5))
     val payloadClass: Class<P>
 
     fun execute(context: TaskContext<P>): TaskResult
 
-    fun onMaxRetriesExceeded(context: TaskContext<P>) {
-        log.warn("Task {} exceeded max retries: instanceId={}", taskName, context.instanceId)
+    fun onFinalFailure(context: TaskContext<P>) {
+        log.warn("Task {} final failure: instanceId={}", taskName, context.instanceId)
     }
 
     companion object {

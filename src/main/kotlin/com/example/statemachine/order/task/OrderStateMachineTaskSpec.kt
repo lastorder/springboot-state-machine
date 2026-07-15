@@ -2,11 +2,13 @@ package com.example.statemachine.order.task
 
 import com.example.statemachine.statemachine.service.StateMachineService
 import com.example.statemachine.task.spec.LockingTaskSpec
+import com.example.statemachine.task.spec.RetryStrategy
 import com.example.statemachine.task.spec.TaskContext
 import com.example.statemachine.task.spec.TaskResult
 import net.javacrumbs.shedlock.core.LockProvider
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import java.time.Duration
 
 @Component
 class OrderStateMachineTaskSpec(
@@ -18,6 +20,8 @@ class OrderStateMachineTaskSpec(
     ) {
     override val taskName: String = TASK_NAME
     override val maxRetries: Int = 5
+    override val retryStrategy: RetryStrategy =
+        RetryStrategy.exponentialBackoff(Duration.ofSeconds(3), 2.0)
     override val payloadClass: Class<OrderEventPayload> = OrderEventPayload::class.java
 
     override fun executeWithLock(context: TaskContext<OrderEventPayload>): TaskResult {
@@ -35,11 +39,11 @@ class OrderStateMachineTaskSpec(
             if (accepted) {
                 TaskResult.success("Event ${payload.event} accepted")
             } else {
-                TaskResult.fail("Event ${payload.event} rejected by state machine")
+                TaskResult.failWithoutRetry("Event ${payload.event} rejected by state machine")
             }
         } catch (e: Exception) {
             log.error("State machine error for order {}", payload.orderId, e)
-            TaskResult.retry("State machine error: ${e.message}")
+            TaskResult.fail("State machine error: ${e.message}", e)
         }
     }
 
