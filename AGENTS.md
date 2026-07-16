@@ -1,5 +1,9 @@
 # Agent Instructions
 
+## Important Rules
+
+**NEVER access directories outside of the project root.** If temporary files or directories are needed, create them inside the project (e.g., `.tmp/` or `logs/`).
+
 ## Build & Test Commands
 
 This project uses Gradle with Kotlin DSL. Always run the following commands after making changes:

@@ -15,6 +15,7 @@ import reactor.core.publisher.Mono
 class StateMachineService(
     private val stateMachineFactory: StateMachineFactory<OrderStatus, OrderEvent>,
     private val jpaStateMachineRepository: JpaStateMachineRepository,
+    private val stateMachineListener: org.springframework.statemachine.listener.StateMachineListenerAdapter<OrderStatus, OrderEvent>,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -34,8 +35,14 @@ class StateMachineService(
         val stateMachine = stateMachineFactory.getStateMachine(machineId)
 
         return try {
+            stateMachine.addStateListener(stateMachineListener)
             restoreStateMachine(stateMachine, machineId).block()
-            log.debug("Restored state machine state: ${stateMachine.state.id}")
+            
+            // Start the state machine before sending event (required for transitions)
+            log.debug("Starting state machine before sending event")
+            stateMachine.startReactively().block()
+            
+            log.debug("State machine state after start: ${stateMachine.state.id}")
 
             val message =
                 MessageBuilder
@@ -100,11 +107,16 @@ class StateMachineService(
     ): Mono<Boolean> =
         stateMachine
             .sendEvent(Mono.just(message))
+            .doOnNext { result ->
+                log.debug("Event result: ${result.resultType}, event=${message.payload}, state=${stateMachine.state.id}")
+            }
             .next()
             .map { it.resultType == org.springframework.statemachine.StateMachineEventResult.ResultType.ACCEPTED }
             .onErrorReturn(false)
 
     private fun stopStateMachine(stateMachine: StateMachine<OrderStatus, OrderEvent>): Mono<Void> = stateMachine.stopReactively()
+
+    private fun startStateMachine(stateMachine: StateMachine<OrderStatus, OrderEvent>): Mono<Void> = stateMachine.startReactively()
 
     private fun restoreStateMachine(
         stateMachine: StateMachine<OrderStatus, OrderEvent>,
@@ -116,7 +128,8 @@ class StateMachineService(
             val state = OrderStatus.valueOf(entity.state)
             resetStateMachineContext(stateMachine, state, machineId)
         } else {
-            Mono.empty()
+            log.debug("No existing state machine found, initializing to INIT state: machineId=$machineId")
+            resetStateMachineContext(stateMachine, OrderStatus.INIT, machineId)
         }
     }
 
@@ -149,5 +162,6 @@ class StateMachineService(
         entity.machineId = machineId
         entity.state = stateMachine.state.id.name
         jpaStateMachineRepository.save(entity)
+        log.debug("Persisted state machine state: machineId=$machineId, state=${entity.state}")
     }
 }

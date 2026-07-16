@@ -16,7 +16,10 @@ class OrderEventConsumer(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    @KafkaListener(topics = ["pr.approved"], groupId = "order-state-machine-group")
+    @KafkaListener(
+        topics = ["pr.approved"],
+        properties = ["spring.json.value.default.type=com.example.statemachine.infrastructure.kafka.dto.PrApprovedEvent"],
+    )
     fun onPrApproved(record: ConsumerRecord<String, PrApprovedEvent>) {
         val event = record.value()
         log.info("Received PR_APPROVED event: orderNo=${event.orderNo}")
@@ -35,7 +38,10 @@ class OrderEventConsumer(
         )
     }
 
-    @KafkaListener(topics = ["factory.vom"], groupId = "order-state-machine-group")
+    @KafkaListener(
+        topics = ["factory.vom"],
+        properties = ["spring.json.value.default.type=com.example.statemachine.infrastructure.kafka.dto.VomEvent"],
+    )
     fun onVom(record: ConsumerRecord<String, VomEvent>) {
         val event = record.value()
         log.info("Received VOM event: orderId=${event.orderId}")
@@ -46,7 +52,10 @@ class OrderEventConsumer(
         )
     }
 
-    @KafkaListener(topics = ["factory.dom"], groupId = "order-state-machine-group")
+    @KafkaListener(
+        topics = ["factory.dom"],
+        properties = ["spring.json.value.default.type=com.example.statemachine.infrastructure.kafka.dto.DomEvent"],
+    )
     fun onDom(record: ConsumerRecord<String, DomEvent>) {
         val event = record.value()
         log.info("Received DOM event: orderId=${event.orderId}")
@@ -57,7 +66,10 @@ class OrderEventConsumer(
         )
     }
 
-    @KafkaListener(topics = ["factory.vom.failed"], groupId = "order-state-machine-group")
+    @KafkaListener(
+        topics = ["factory.vom.failed"],
+        properties = ["spring.json.value.default.type=com.example.statemachine.infrastructure.kafka.dto.VomEvent"],
+    )
     fun onVomFailed(record: ConsumerRecord<String, VomEvent>) {
         val event = record.value()
         log.info("Received VOM_FAILED event: orderId=${event.orderId}")

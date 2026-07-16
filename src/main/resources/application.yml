@@ -7,34 +7,40 @@ spring:
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
+  sql:
+    init:
+      mode: always
 
   jpa:
     hibernate:
-      ddl-auto: create-drop
-    show-sql: false
+      ddl-auto: update
+    show-sql: true
     properties:
       hibernate:
         format_sql: true
-        dialect: org.hibernate.dialect.PostgreSQLDialect
     open-in-view: false
-    packages-to-scan: com.example.statemachine.infrastructure.persistence.entity
 
   kafka:
-    bootstrap-servers: localhost:9094
+    bootstrap-servers: localhost:9092
     consumer:
-      group-id: order-state-machine-group
+      group-id: order-state-machine-group-v3
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        spring.json.trusted.packages: "com.example.statemachine.kafka.dto"
+        spring.json.trusted.packages: "com.example.statemachine.infrastructure.kafka.dto"
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
         spring.json.add.type.headers: false
     listener:
-      ack-mode: manual
+      ack-mode: batch
+
+logging:
+  level:
+    org.springframework.statemachine: DEBUG
+    com.example.statemachine.statemachine: DEBUG
 
 server:
   port: 8080
@@ -49,12 +55,6 @@ spring.statemachine:
   jpa:
     enabled: true
 
-# 订单验证配置
-order:
-  validation:
-    timeout-minutes: 10
-    max-retries: 3
-
 # DB-Scheduler 配置
 db-scheduler:
   enabled: true
@@ -63,9 +63,5 @@ db-scheduler:
   heartbeat-interval: 1m
   immediate-execution-enabled: true
   polling-strategy: lock-and-fetch
-
-logging:
-  level:
-    com.example.statemachine: DEBUG
-    org.springframework.statemachine: DEBUG
-    org.springframework.kafka: INFO
+  create-table: true
+  table-name: scheduled_tasks

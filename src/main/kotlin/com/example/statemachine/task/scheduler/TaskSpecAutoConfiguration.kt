@@ -13,11 +13,11 @@ class TaskSpecAutoConfiguration(
     private val adapterFactory: TaskSpecAdapterFactory,
 ) {
     @Bean
-    fun taskSpecBeans(): Map<String, Task<*>> =
-        taskSpecs.associate { spec ->
+    fun dbSchedulerTasks(): List<Task<*>> =
+        taskSpecs.map { spec ->
             log.info("Creating db-scheduler task for: {}", spec.taskName)
             @Suppress("UNCHECKED_CAST")
-            spec.taskName to adapterFactory.createOneTimeTask(spec as TaskSpec<Serializable>)
+            adapterFactory.createOneTimeTask(spec as TaskSpec<Serializable>)
         }
 
     companion object {

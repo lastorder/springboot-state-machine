@@ -21,8 +21,7 @@ import kotlin.math.round
 class TaskSpecAdapterFactory(
     private val taskSpecRegistry: com.example.statemachine.task.spec.TaskSpecRegistry,
 ) {
-    fun <P : Serializable> createOneTimeTask(spec: TaskSpec<P>): OneTimeTask<P> =
-        AdapterOneTimeTask(spec)
+    fun <P : Serializable> createOneTimeTask(spec: TaskSpec<P>): OneTimeTask<P> = AdapterOneTimeTask(spec)
 
     inner class AdapterOneTimeTask<P : Serializable>(
         private val spec: TaskSpec<P>,

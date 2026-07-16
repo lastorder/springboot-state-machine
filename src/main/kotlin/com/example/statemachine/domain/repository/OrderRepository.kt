@@ -7,5 +7,7 @@ interface OrderRepository {
 
     fun findById(id: Long): Order?
 
+    fun findByOrderNo(orderNo: String): Order?
+
     fun findAll(): List<Order>
 }

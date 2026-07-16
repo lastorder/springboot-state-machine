@@ -32,7 +32,8 @@ class StateMachineServiceTest {
         stateMachineFactory = mockk()
         jpaStateMachineRepository = mockk()
         stateMachine = mockk(relaxed = true)
-        stateMachineService = StateMachineService(stateMachineFactory, jpaStateMachineRepository)
+        val stateMachineListener = mockk<org.springframework.statemachine.listener.StateMachineListenerAdapter<OrderStatus, OrderEvent>>(relaxed = true)
+        stateMachineService = StateMachineService(stateMachineFactory, jpaStateMachineRepository, stateMachineListener)
     }
 
     @Test

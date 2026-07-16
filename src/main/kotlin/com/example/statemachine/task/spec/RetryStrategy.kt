@@ -3,7 +3,9 @@ package com.example.statemachine.task.spec
 import java.time.Duration
 
 sealed class RetryStrategy {
-    data class FixedDelay(val delay: Duration) : RetryStrategy()
+    data class FixedDelay(
+        val delay: Duration,
+    ) : RetryStrategy()
 
     data class ExponentialBackoff(
         val initialDelay: Duration,

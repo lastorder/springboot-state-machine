@@ -5,11 +5,17 @@ import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.statemachine.action.PrApprovedAction
 import com.example.statemachine.statemachine.action.SendCoeAction
 import com.example.statemachine.statemachine.action.SyncDealAction
+import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Configuration
+import org.springframework.statemachine.StateMachine
+import org.springframework.statemachine.action.Action
+import org.springframework.statemachine.action.ActionListener
 import org.springframework.statemachine.config.EnableStateMachineFactory
 import org.springframework.statemachine.config.StateMachineConfigurerAdapter
 import org.springframework.statemachine.config.builders.StateMachineStateConfigurer
 import org.springframework.statemachine.config.builders.StateMachineTransitionConfigurer
+import org.springframework.statemachine.listener.StateMachineListenerAdapter
+import org.springframework.statemachine.transition.Transition
 
 @Configuration
 @EnableStateMachineFactory
@@ -18,17 +24,17 @@ class StateMachineConfig(
     private val sendCoeAction: SendCoeAction,
     private val syncDealAction: SyncDealAction,
 ) : StateMachineConfigurerAdapter<OrderStatus, OrderEvent>() {
+    private val log = LoggerFactory.getLogger(javaClass)
+
     override fun configure(states: StateMachineStateConfigurer<OrderStatus, OrderEvent>) {
         states
             .withStates()
             .initial(OrderStatus.INIT)
-            .fork(OrderStatus.FACTORY_ORDER_SUBMITTED)
-            .join(OrderStatus.ORDER_INITIALIZE_SUCCEED)
             .state(OrderStatus.LOCAL_INITIALIZED)
             .state(OrderStatus.FACTORY_ORDER_SUBMITTED, syncDealAction, null)
             .state(OrderStatus.FIRST_VOM_RECEIVED)
             .state(OrderStatus.FIRST_DOM_RECEIVED)
-            .end(OrderStatus.ORDER_INITIALIZE_SUCCEED)
+            .state(OrderStatus.ORDER_INITIALIZE_SUCCEED)
             .end(OrderStatus.ORDER_INITIALIZE_FAILED)
     }
 
@@ -44,16 +50,6 @@ class StateMachineConfig(
             .source(OrderStatus.LOCAL_INITIALIZED)
             .target(OrderStatus.FACTORY_ORDER_SUBMITTED)
             .action(sendCoeAction)
-            .and()
-            .withFork()
-            .source(OrderStatus.FACTORY_ORDER_SUBMITTED)
-            .target(OrderStatus.FIRST_VOM_RECEIVED)
-            .target(OrderStatus.FIRST_DOM_RECEIVED)
-            .and()
-            .withJoin()
-            .source(OrderStatus.FIRST_VOM_RECEIVED)
-            .source(OrderStatus.FIRST_DOM_RECEIVED)
-            .target(OrderStatus.ORDER_INITIALIZE_SUCCEED)
             .and()
             .withExternal()
             .source(OrderStatus.FACTORY_ORDER_SUBMITTED)

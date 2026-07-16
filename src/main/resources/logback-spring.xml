@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <property name="LOG_FILE" value="logs/app.log"/>
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}</file>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/app.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>100MB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <springProfile name="default">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FILE"/>
+        </root>
+    </springProfile>
+
+    <logger name="com.example.statemachine" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+
+    <logger name="org.springframework.statemachine" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+
+    <logger name="org.hibernate.SQL" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+
+    <logger name="org.hibernate.orm.jdbc.bind" level="TRACE" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+
+    <logger name="org.springframework.kafka" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+    <logger name="org.apache.kafka" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+    <logger name="com.github.kagkarlsson" level="INFO"/>
+</configuration>

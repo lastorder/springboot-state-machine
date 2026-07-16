@@ -21,5 +21,10 @@ class OrderRepositoryImpl(
             .map { OrderConverter.toDomain(it) }
             .orElse(null)
 
+    override fun findByOrderNo(orderNo: String): Order? =
+        orderJpaRepository
+            .findByOrderNo(orderNo)
+            ?.let { OrderConverter.toDomain(it) }
+
     override fun findAll(): List<Order> = orderJpaRepository.findAll().map { OrderConverter.toDomain(it) }
 }
