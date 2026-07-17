@@ -189,28 +189,93 @@
             padding: 20px;
             margin: 20px 0;
         }
+        
+        .success-box {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-left: 4px solid #28a745;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-left: 4px solid #ffc107;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .info-box {
+            background: #cce5ff;
+            border: 1px solid #b8daff;
+            border-left: 4px solid #004085;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .danger-box {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-left: 4px solid #dc3545;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔄 订单初始化状态机设计文档 (Fork/Join 并行等待版)</h1>
+        <h1>订单初始化状态机设计文档</h1>
         
         <div class="section">
             <h2>1. 状态机总览</h2>
-            <p>本设计使用 Fork/Join 模式实现订单初始化流程，等待工厂系统返回 VOM 和 DOM 事件。</p>
+            <p>本设计使用 Fork/Join 模式实现订单初始化流程，等待工厂系统返回 VOM 和 DOM 事件。状态机使用 <code>orderNo</code> 作为唯一标识，实现外部系统统一使用 orderNo 进行交互。</p>
             
             <div class="highlight">
                 <strong>核心特性：</strong>
                 <ul>
+                    <li><strong>orderNo 绑定</strong>：状态机以 orderNo 作为 machineId，外部系统无需关注内部 orderId</li>
                     <li>订单初始化：PR审批通过后开始本地初始化</li>
                     <li>Fork/Join 模式：VOM 和 DOM 事件并行等待，两者都收到后才完成</li>
                     <li>COE 发送：本地初始化后发送 COE 到 Kafka</li>
                     <li>Deal 同步：提交工厂订单后同步状态到 Deal 服务</li>
                     <li>失败处理：VOM_FAILED 事件直接导致初始化失败</li>
+                    <li><strong>状态同步</strong>：状态机停止时自动同步最终状态到 orders 表</li>
                 </ul>
             </div>
             
-            <h3>1.1 完整状态流转图</h3>
+            <h3>1.1 状态机与订单绑定关系</h3>
+            <div class="code-block">
+<pre>
+┌─────────────────────────────────────────────────────────────────┐
+│                    状态机与订单绑定关系                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  orders 表                  state_machine 表                     │
+│  ┌────────────────┐         ┌──────────────────┐                │
+│  │ id (PK)        │         │ machine_id (PK)  │                │
+│  │ order_no ──────┼─────────┼─► "ORD-001"      │ (业务订单号)    │
+│  │ status         │         │ state            │                │
+│  │ product_id     │         │ state_machine_   │                │
+│  │ ...            │         │   context (BYTEA)│                │
+│  └────────────────┘         └──────────────────┘                │
+│                                                                  │
+│  绑定关系: orders.order_no = state_machine.machine_id           │
+│                                                                  │
+│  设计原则:                                                        │
+│  • machineId = orderNo（业务订单号，非自增 ID）                   │
+│  • 外部系统（Kafka、REST API）全部使用 orderNo                    │
+│  • 状态机内部自动同步状态到 orders.status                          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+</pre>
+            </div>
+            
+            <h3>1.2 完整状态流转图</h3>
             <div class="mermaid">
 stateDiagram-v2
     direction TB
@@ -241,6 +306,7 @@ stateDiagram-v2
     note right of INIT
         初始状态
         等待 PR 审批通过
+        machineId = orderNo
     end note
     
     note right of parallel_wait
@@ -253,7 +319,245 @@ stateDiagram-v2
         </div>
         
         <div class="section">
-            <h2>2. Fork/Join 并行等待详解</h2>
+            <h2>2. 状态机绑定设计</h2>
+            
+            <h3>2.1 为什么使用 orderNo 作为 machineId？</h3>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>对比项</th>
+                        <th>使用 orderId（旧方案）</th>
+                        <th>使用 orderNo（当前方案）</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>外部系统交互</td>
+                        <td>❌ 需要先查询 orderId</td>
+                        <td>✅ 直接使用 orderNo</td>
+                    </tr>
+                    <tr>
+                        <td>Kafka 消息</td>
+                        <td>❌ 需要携带 orderId</td>
+                        <td>✅ orderNo 是自然主键</td>
+                    </tr>
+                    <tr>
+                        <td>ID 迁移</td>
+                        <td>❌ 需要复杂的 transferOrInitialize()</td>
+                        <td>✅ 无需迁移</td>
+                    </tr>
+                    <tr>
+                        <td>幂等处理</td>
+                        <td>⚠️ 需要额外检查</td>
+                        <td>✅ orderNo 天然唯一</td>
+                    </tr>
+                    <tr>
+                        <td>调试友好性</td>
+                        <td>⚠️ ID 不直观</td>
+                        <td>✅ "ORD-001" 直观可读</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <h3>2.2 状态同步机制</h3>
+            
+            <div class="mermaid">
+sequenceDiagram
+    participant K as Kafka
+    participant C as OrderEventConsumer
+    participant SM as StateMachineService
+    participant SML as StateMachineListener
+    participant OSS as OrderStatusSyncService
+    participant DB as orders 表
+    
+    K->>C: 消息 (orderNo="ORD-001")
+    C->>SM: sendEventByOrderNo("ORD-001", event)
+    SM->>SM: machineId = orderNo
+    SM->>SM: 状态转换执行
+    SM->>SM: persistStateMachine()
+    SM->>SML: stateMachineStopped(machineId="ORD-001")
+    SML->>OSS: syncOrderStatusByOrderNo(orderNo, finalState)
+    Note over OSS: @Transactional(REQUIRES_NEW)
+    OSS->>DB: UPDATE orders SET status = ?
+    DB-->>OSS: 成功
+            </div>
+            
+            <div class="info-box">
+                <strong>状态同步关键设计：</strong>
+                <ul>
+                    <li><code>StateMachineListener.stateMachineStopped()</code> 触发状态同步</li>
+                    <li><code>OrderStatusSyncService</code> 使用 <code>@Transactional(REQUIRES_NEW)</code> 独立事务</li>
+                    <li>状态同步失败不影响状态机执行（catch 异常，仅记录日志）</li>
+                    <li>同步时机：状态机停止时（每次事件处理后）</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>3. 事务处理策略</h2>
+            
+            <h3>3.1 事务边界设计原则</h3>
+            
+            <div class="danger-box">
+                <strong>重要：Spring State Machine 不是事务安全的</strong>
+                <p>状态机的 Action 执行、状态持久化、状态同步需要在事务边界上仔细设计。</p>
+            </div>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>组件</th>
+                        <th>事务策略</th>
+                        <th>原因</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>StateMachineService.sendEventByOrderNo()</code></td>
+                        <td><strong>无事务</strong></td>
+                        <td>状态机操作涉及 Reactive 流，不能在传统事务内执行</td>
+                    </tr>
+                    <tr>
+                        <td><code>PrApprovedAction.execute()</code></td>
+                        <td><strong>无 @Transactional</strong></td>
+                        <td>由调用方控制事务边界，Action 内部调用带事务的 Repository</td>
+                    </tr>
+                    <tr>
+                        <td><code>OrderRepository.save()</code></td>
+                        <td><strong>继承调用方事务</strong></td>
+                        <td>Spring Data JPA 默认继承事务</td>
+                    </tr>
+                    <tr>
+                        <td><code>OrderStatusSyncService.syncOrderStatusByOrderNo()</code></td>
+                        <td><strong>@Transactional(REQUIRES_NEW)</strong></td>
+                        <td>独立事务，确保状态同步不受外部事务影响</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <h3>3.2 各 Action 事务详细说明</h3>
+            
+            <div class="code-block">
+<pre>
+┌─────────────────────────────────────────────────────────────────────┐
+│                        事务边界设计                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  1. PrApprovedAction (INIT → LOCAL_INITIALIZED)                     │
+│     ┌─────────────────────────────────────────────────────────────┐ │
+│     │ Action.execute() [无事务]                                    │ │
+│     │   ├─ OrderRepository.findByOrderNo() [继承事务]              │ │
+│     │   ├─ OrderRepository.save() [继承事务] ← 乐观锁保护           │ │
+│     │   └─ StateMachineService.initializeStateMachineByOrderNo()   │ │
+│     │        └─ persistStateMachine() [隐式事务]                   │ │
+│     └─────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  2. SendCoeAction (LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED)    │
+│     ┌─────────────────────────────────────────────────────────────┐ │
+│     │ Action.execute() [无事务]                                    │ │
+│     │   └─ CoeProducer.send() [Kafka 发送，无事务]                 │ │
+│     └─────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  3. SyncDealAction (FACTORY_ORDER_SUBMITTED Entry)                 │
+│     ┌─────────────────────────────────────────────────────────────┐ │
+│     │ Action.execute() [无事务]                                    │ │
+│     │   └─ DealClient.sync() [REST 调用，无事务]                   │ │
+│     └─────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+│  4. 状态同步 (stateMachineStopped 回调)                             │
+│     ┌─────────────────────────────────────────────────────────────┐ │
+│     │ StateMachineListener.stateMachineStopped() [无事务]          │ │
+│     │   └─ OrderStatusSyncService.syncOrderStatusByOrderNo()       │ │
+│     │        └─ @Transactional(REQUIRES_NEW) [独立事务]            │ │
+│     └─────────────────────────────────────────────────────────────┘ │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+</pre>
+            </div>
+            
+            <h3>3.3 为什么使用 REQUIRES_NEW？</h3>
+            
+            <div class="success-box">
+                <strong>OrderStatusSyncService 使用 REQUIRES_NEW 的原因：</strong>
+                <ol>
+                    <li><strong>隔离性</strong>：状态同步失败不影响状态机持久化</li>
+                    <li><strong>一致性</strong>：即使外部事务回滚，状态同步也已提交</li>
+                    <li><strong>独立提交</strong>：每次状态变更立即同步并提交</li>
+                    <li><strong>错误处理</strong>：catch 异常后仅记录日志，不传播</li>
+                </ol>
+            </div>
+            
+            <div class="code-block">
+<pre>
+@Service
+class OrderStatusSyncService(
+    private val orderJpaRepository: OrderJpaRepository,
+) {
+    // 独立事务，确保状态同步不受外部事务影响
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun syncOrderStatusByOrderNo(orderNo: String, newStatus: OrderStatus): Boolean {
+        val entity = orderJpaRepository.findByOrderNo(orderNo) ?: return false
+        entity.status = newStatus
+        entity.updatedAt = Instant.now()
+        orderJpaRepository.save(entity)
+        return true
+    }
+}
+
+// Listener 中调用
+override fun stateMachineStopped(stateMachine: StateMachine&lt;OrderStatus, OrderEvent&gt;) {
+    val orderNo = stateMachine.id  // machineId = orderNo
+    val finalState = stateMachine.state?.id
+    
+    try {
+        orderStatusSyncService.syncOrderStatusByOrderNo(orderNo, finalState)
+    } catch (e: Exception) {
+        // 状态同步失败不影响状态机执行，只记录日志
+        log.error("Status sync failed but state machine continues", e)
+    }
+}
+</pre>
+            </div>
+            
+            <h3>3.4 幂等处理（PrApprovedAction）</h3>
+            
+            <div class="code-block">
+<pre>
+override fun execute(context: StateContext&lt;OrderStatus, OrderEvent&gt;) {
+    val orderNo = context.message.headers.get("orderNo") as? String ?: return
+    
+    // 检查订单是否已存在
+    val existingOrder = orderRepository.findByOrderNo(orderNo)
+    
+    if (existingOrder != null) {
+        // 幂等检查：获取当前状态机状态
+        val existingStatus = stateMachineService.getCurrentStateByOrderNo(orderNo)
+        
+        // 如果订单已在 LOCAL_INITIALIZED 或之后的状态，直接返回
+        if (existingStatus != null && existingStatus != OrderStatus.INIT) {
+            log.info("Order already processed, skipping: orderNo=$orderNo")
+            return
+        }
+        
+        // 订单存在但仍在 INIT 状态，重新处理
+        stateMachineService.initializeStateMachineByOrderNo(orderNo, OrderStatus.LOCAL_INITIALIZED)
+        return
+    }
+    
+    // 创建新订单
+    val order = Order.fromPrApproved(orderNo, ...)
+    val savedOrder = orderRepository.save(order)
+    
+    // 初始化状态机
+    stateMachineService.initializeStateMachineByOrderNo(orderNo, OrderStatus.LOCAL_INITIALIZED)
+}
+</pre>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>4. Fork/Join 并行等待详解</h2>
             
             <div class="fork-join-box">
                 <h3>并行等待流程</h3>
@@ -300,7 +604,7 @@ flowchart TB
         </div>
         
         <div class="section">
-            <h2>3. 状态定义</h2>
+            <h2>5. 状态定义</h2>
             <table>
                 <thead>
                     <tr>
@@ -358,7 +662,7 @@ flowchart TB
         </div>
         
         <div class="section">
-            <h2>4. 事件定义</h2>
+            <h2>6. 事件定义</h2>
             <table>
                 <thead>
                     <tr>
@@ -424,14 +728,14 @@ flowchart TB
         </div>
         
         <div class="section">
-            <h2>5. Kafka Topics</h2>
+            <h2>7. Kafka Topics</h2>
             <table>
                 <thead>
                     <tr>
                         <th>Topic</th>
                         <th>方向</th>
                         <th>消息类型</th>
-                        <th>触发时机</th>
+                        <th>关键字段</th>
                         <th>说明</th>
                     </tr>
                 </thead>
@@ -440,248 +744,192 @@ flowchart TB
                         <td><code>pr.approved</code></td>
                         <td>← PR 服务</td>
                         <td>PrApprovedEvent</td>
-                        <td>PR_APPROVED</td>
+                        <td>orderNo (必填)</td>
                         <td>PR 审批通过事件</td>
                     </tr>
                     <tr style="background-color: #fef9e7;">
                         <td><code>coe.order.created</code></td>
                         <td>→ COE 服务</td>
                         <td>CoeOrderCreatedEvent</td>
-                        <td>LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED</td>
+                        <td>orderNo</td>
                         <td>发送 COE 订单创建事件</td>
                     </tr>
                     <tr style="background-color: #e8f8f5;">
                         <td><code>factory.vom</code></td>
                         <td>← 工厂服务</td>
                         <td>VomEvent</td>
-                        <td>VOM</td>
+                        <td>orderNo (必填)</td>
                         <td>工厂 VOM 事件</td>
                     </tr>
                     <tr style="background-color: #e8f8f5;">
                         <td><code>factory.dom</code></td>
                         <td>← 工厂服务</td>
                         <td>DomEvent</td>
-                        <td>DOM</td>
+                        <td>orderNo (必填)</td>
                         <td>工厂 DOM 事件</td>
                     </tr>
                     <tr style="background-color: #f8d7da;">
                         <td><code>factory.vom.failed</code></td>
                         <td>← 工厂服务</td>
                         <td>VomFailedEvent</td>
-                        <td>VOM_FAILED</td>
+                        <td>orderNo (必填)</td>
                         <td>工厂 VOM 失败事件</td>
                     </tr>
                     <tr style="background-color: #f4f6f6;">
                         <td><code>order.events</code></td>
                         <td>→ 外部系统</td>
                         <td>OrderStatusChangeEvent</td>
-                        <td>所有状态变更</td>
+                        <td>orderNo, status</td>
                         <td>订单状态变更事件广播</td>
                     </tr>
                 </tbody>
             </table>
+            
+            <div class="warning-box">
+                <strong>重要：所有消息必须携带 orderNo</strong>
+                <p>外部系统发送消息时，必须携带 <code>orderNo</code> 字段，状态机使用 orderNo 作为 machineId。</p>
+                <p>orderId 字段已标记为废弃，仅用于向后兼容。</p>
+            </div>
         </div>
         
         <div class="section">
-            <h2>6. Actions</h2>
+            <h2>8. Actions</h2>
             <table>
                 <thead>
                     <tr>
                         <th>Action</th>
                         <th>触发状态转换</th>
                         <th>职责</th>
+                        <th>事务策略</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
                         <td><code>PrApprovedAction</code></td>
                         <td>INIT → LOCAL_INITIALIZED</td>
-                        <td>从 Kafka 消息中提取订单信息，保存到 DB</td>
+                        <td>从 Kafka 消息中提取订单信息，保存到 DB；幂等处理重复消息</td>
+                        <td>无事务，由 Repository 方法继承事务</td>
                     </tr>
                     <tr>
                         <td><code>SendCoeAction</code></td>
                         <td>LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED</td>
                         <td>发送 COE 订单创建事件到 Kafka</td>
+                        <td>无事务（Kafka 发送）</td>
                     </tr>
                     <tr>
                         <td><code>SyncDealAction</code></td>
                         <td>FACTORY_ORDER_SUBMITTED (Entry)</td>
                         <td>同步订单状态到 Deal 服务 (REST API)</td>
+                        <td>无事务（REST 调用）</td>
                     </tr>
                 </tbody>
             </table>
         </div>
         
         <div class="section">
-            <h2>7. 典型场景示例</h2>
+            <h2>9. 关键实现文件</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>文件</th>
+                        <th>职责</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>StateMachineService.kt</code></td>
+                        <td>状态机服务：sendEventByOrderNo(), getCurrentStateByOrderNo(), initializeStateMachineByOrderNo()</td>
+                    </tr>
+                    <tr>
+                        <td><code>StateMachineListener.kt</code></td>
+                        <td>状态同步：stateMachineStopped() 触发状态同步</td>
+                    </tr>
+                    <tr>
+                        <td><code>OrderStatusSyncService.kt</code></td>
+                        <td>独立事务状态同步：@Transactional(REQUIRES_NEW)</td>
+                    </tr>
+                    <tr>
+                        <td><code>PrApprovedAction.kt</code></td>
+                        <td>订单创建：幂等处理，使用 orderNo 作为 machineId</td>
+                    </tr>
+                    <tr>
+                        <td><code>OrderEventConsumer.kt</code></td>
+                        <td>Kafka 消费者：统一使用 orderNo 调用状态机</td>
+                    </tr>
+                    <tr>
+                        <td><code>*Event.kt</code> (VomEvent, DomEvent)</td>
+                        <td>Kafka DTO：orderNo 为必填字段，orderId 标记废弃</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="section">
+            <h2>10. 典型场景示例</h2>
             
-            <h3>7.1 正常完整流程（VOM 先到）</h3>
+            <h3>10.1 正常完整流程（VOM 先到）</h3>
             <div class="mermaid">
 sequenceDiagram
     participant PR as PR 服务
     participant K as Kafka
     participant O as 订单服务
-    participant COE as COE 服务
-    participant Deal as Deal 服务
-    participant Factory as 工厂服务
+    participant SM as 状态机 (machineId=orderNo)
+    participant DB as orders 表
     
-    PR->>K: pr.approved
+    PR->>K: pr.approved {orderNo: "ORD-001"}
     K->>O: PR_APPROVED
-    O->>O: 状态: INIT → LOCAL_INITIALIZED
-    O->>O: 保存 Order 到 DB
-    O->>O: 状态: LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED
-    O->>K: coe.order.created
-    O->>Deal: REST API: 同步订单
-    O->>O: Fork: 等待 VOM/DOM
+    O->>SM: sendEventByOrderNo("ORD-001", PR_APPROVED)
+    SM->>SM: machineId = "ORD-001"
+    SM->>O: PrApprovedAction 执行
+    O->>DB: INSERT orders (orderNo="ORD-001")
+    SM->>SM: INIT → LOCAL_INITIALIZED
+    SM->>O: SendCoeAction 执行
+    O->>K: coe.order.created {orderNo: "ORD-001"}
+    SM->>SM: LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED
+    SM->>O: SyncDealAction 执行
+    O->>O: REST API 同步 Deal
+    SM->>SM: Fork: 等待 VOM/DOM
+    SM->>SM: stateMachineStopped
+    SM->>DB: UPDATE orders SET status = status
     
-    Factory->>K: factory.vom
+    Note over O: 等待工厂事件...
+    
+    O->>K: factory.vom {orderNo: "ORD-001"}
     K->>O: VOM
-    O->>O: 状态: FACTORY_ORDER_SUBMITTED → FIRST_VOM_RECEIVED
-    Note over O: 等待 DOM...
+    O->>SM: sendEventByOrderNo("ORD-001", VOM)
+    SM->>SM: FACTORY_ORDER_SUBMITTED → FIRST_VOM_RECEIVED
     
-    Factory->>K: factory.dom
+    O->>K: factory.dom {orderNo: "ORD-001"}
     K->>O: DOM
-    O->>O: 状态: FIRST_VOM_RECEIVED → ORDER_INITIALIZE_SUCCEED
-    Note over O: Join 成功！
-            </div>
-            
-            <h3>7.2 正常完整流程（DOM 先到）</h3>
-            <div class="mermaid">
-sequenceDiagram
-    participant Factory as 工厂服务
-    participant K as Kafka
-    participant O as 订单服务
-    
-    Note over O: 状态: FACTORY_ORDER_SUBMITTED
-    Note over O: Fork: 等待 VOM/DOM
-    
-    Factory->>K: factory.dom
-    K->>O: DOM
-    O->>O: 状态: FACTORY_ORDER_SUBMITTED → FIRST_DOM_RECEIVED
-    Note over O: 等待 VOM...
-    
-    Factory->>K: factory.vom
-    K->>O: VOM
-    O->>O: 状态: FIRST_DOM_RECEIVED → ORDER_INITIALIZE_SUCCEED
-    Note over O: Join 成功！
-            </div>
-            
-            <h3>7.3 VOM 失败场景</h3>
-            <div class="mermaid">
-sequenceDiagram
-    participant Factory as 工厂服务
-    participant K as Kafka
-    participant O as 订单服务
-    
-    Note over O: 状态: FACTORY_ORDER_SUBMITTED
-    Note over O: Fork: 等待 VOM/DOM
-    
-    Factory->>K: factory.vom.failed
-    K->>O: VOM_FAILED
-    O->>O: 状态: FACTORY_ORDER_SUBMITTED → ORDER_INITIALIZE_FAILED
-    Note over O: 初始化失败！
+    O->>SM: sendEventByOrderNo("ORD-001", DOM)
+    SM->>SM: FIRST_VOM_RECEIVED → ORDER_INITIALIZE_SUCCEED
+    SM->>DB: status = ORDER_INITIALIZE_SUCCEED
             </div>
         </div>
         
         <div class="section">
-            <h2>8. TaskSpec 模式</h2>
-            <p>项目使用 TaskSpec 模式处理异步事件，结合 db-scheduler 和 ShedLock 实现分布式任务调度。</p>
+            <h2>11. 最佳实践总结</h2>
             
-            <h3>8.1 架构</h3>
-            <div class="mermaid">
-graph LR
-    A[Kafka Event] --> B[OrderCommandService]
-    B --> C[TaskScheduler]
-    C --> D[(scheduled_tasks)]
-    D --> E[OrderStateMachineTaskSpec]
-    E --> F[StateMachineService]
-    F --> G[状态机]
+            <div class="success-box">
+                <strong>1. 使用 orderNo 作为状态机 ID</strong><br>
+                外部系统友好，无需关注内部 orderId，调试直观。
+                <br><br>
+                <strong>2. 状态同步使用 REQUIRES_NEW 事务</strong><br>
+                独立事务确保状态同步不受外部事务影响，失败不影响状态机执行。
+                <br><br>
+                <strong>3. Action 中实现幂等检查</strong><br>
+                重复消息不会产生副作用，检查订单状态后再处理。
+                <br><br>
+                <strong>4. 所有 Kafka 消息携带 orderNo</strong><br>
+                orderNo 是自然主键，外部系统必须提供。
+                <br><br>
+                <strong>5. 状态机停止时同步状态</strong><br>
+                在 stateMachineStopped 回调中同步，避免每次状态变更时的性能开销。
             </div>
-            
-            <h3>8.2 关键组件</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>组件</th>
-                        <th>说明</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><code>TaskSpec&lt;P&gt;</code></td>
-                        <td>任务规格接口，定义任务名称、最大重试次数、执行逻辑</td>
-                    </tr>
-                    <tr>
-                        <td><code>LockingTaskSpec&lt;P&gt;</code></td>
-                        <td>带分布式锁的任务规格，使用 ShedLock</td>
-                    </tr>
-                    <tr>
-                        <td><code>OrderStateMachineTaskSpec</code></td>
-                        <td>订单状态机任务，处理 VOM/DOM 事件</td>
-                    </tr>
-                    <tr>
-                        <td><code>TaskScheduler</code></td>
-                        <td>任务调度器，封装 db-scheduler 的 scheduleIfNotExists</td>
-                    </tr>
-                </tbody>
-            </table>
-            
-            <h3>8.3 TaskScheduler API</h3>
-            <div class="code-block">
-<pre>
-// 提交任务（返回 Boolean 表示是否成功调度）
-val scheduled = taskScheduler.submit(
-    spec = orderStateMachineTaskSpec,
-    instanceId = "order-123-VOM-${UUID.randomUUID()}",
-    payload = OrderEventPayload(orderId = 123L, event = OrderEvent.VOM)
-)
-
-// 取消任务
-taskScheduler.cancel(
-    taskName = "order-state-machine",
-    instanceId = "order-123-VOM-xxx"
-)
-</pre>
-            </div>
-        </div>
-        
-        <div class="section">
-            <h2>9. 配置参数</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>参数</th>
-                        <th>默认值</th>
-                        <th>说明</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td><code>order.validation.max-retries</code></td>
-                        <td>3</td>
-                        <td>验证失败后最大重试次数</td>
-                    </tr>
-                    <tr>
-                        <td><code>db-scheduler.enabled</code></td>
-                        <td>true</td>
-                        <td>是否启用 db-scheduler</td>
-                    </tr>
-                    <tr>
-                        <td><code>db-scheduler.threads</code></td>
-                        <td>5</td>
-                        <td>执行线程数</td>
-                    </tr>
-                    <tr>
-                        <td><code>db-scheduler.polling-interval</code></td>
-                        <td>5s</td>
-                        <td>扫描间隔</td>
-                    </tr>
-                </tbody>
-            </table>
         </div>
         
         <div class="footer">
-            <p>生成时间：2026-07-14 | Spring Boot State Machine 订单初始化系统 (Fork/Join 并行等待版)</p>
+            <p>生成时间：2026-07-17 | Spring Boot State Machine 订单初始化系统</p>
         </div>
     </div>
     

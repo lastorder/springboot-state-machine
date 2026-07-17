@@ -852,7 +852,103 @@ shedlock:
             </p>
         </div>
         
-        <h3>6.3 锁粒度策略</h3>
+        <h3>6.3 事务处理策略</h3>
+        
+        <div class="danger-box">
+            <p>
+                <strong>TaskSpec execute() 方法不加 @Transactional</strong>
+                <br><br>
+                原因：
+                <br>
+                • db-scheduler 内部管理任务生命周期，需要控制事务边界
+                <br>
+                • 任务执行失败后需要更新 <code>consecutive_failures</code>，不能在业务事务内
+                <br>
+                • 分布式锁（ShedLock）与数据库事务混用可能导致死锁
+            </p>
+        </div>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>场景</th>
+                    <th>事务策略</th>
+                    <th>实现方式</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>TaskSpec.execute()</td>
+                    <td><strong>无事务</strong></td>
+                    <td>调用带事务的 Service 方法</td>
+                </tr>
+                <tr>
+                    <td>StateMachineService.sendEventByOrderNo()</td>
+                    <td><strong>无事务</strong></td>
+                    <td>Reactive 流不能与传统事务混用</td>
+                </tr>
+                <tr>
+                    <td>OrderStatusSyncService.syncOrderStatusByOrderNo()</td>
+                    <td><strong>@Transactional(REQUIRES_NEW)</strong></td>
+                    <td>独立事务，确保状态同步隔离</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <div class="code-title">OrderStateMachineTaskSpec.kt - 事务处理</div>
+        <pre><code class="language-kotlin">@Component
+class OrderStateMachineTaskSpec(
+    private val stateMachineService: StateMachineService,
+    lockProvider: LockProvider,
+) : LockingTaskSpec&lt;OrderEventPayload&gt;(
+    taskName = "order-state-machine",
+    maxRetries = 5,
+    lockProvider = lockProvider,
+    lockKeyProvider = { ctx -> "order:${ctx.payload.orderNo}" },  // 使用 orderNo 作为锁 key
+) {
+    // execute() 已在父类实现，提供了分布式锁
+    // executeWithLock() 不加 @Transactional
+    override fun executeWithLock(context: TaskContext&lt;OrderEventPayload&gt;): TaskResult {
+        val orderNo = context.payload.orderNo
+        val event = context.payload.event
+        
+        // StateMachineService.sendEventByOrderNo() 不加事务
+        // 内部的 OrderStatusSyncService 使用 REQUIRES_NEW 独立事务
+        val success = stateMachineService.sendEventByOrderNo(orderNo, event)
+        
+        return if (success) {
+            TaskResult.success()
+        } else {
+            // 业务失败：状态机拒绝事件，不重试
+            TaskResult.fail(retryable = false, reason = "State machine rejected event")
+        }
+    }
+}</code></pre>
+        
+        <div class="info-box">
+            <p>
+                <strong>事务边界设计原则</strong>
+                <br><br>
+                1. <strong>TaskSpec 不加事务</strong>：让 db-scheduler 管理任务状态
+                <br>
+                2. <strong>调用带事务的 Service</strong>：业务操作在 Service 层处理事务
+                <br>
+                3. <strong>状态同步用 REQUIRES_NEW</strong>：确保状态同步失败不影响任务状态
+                <br>
+                4. <strong>分布式锁在事务外</strong>：ShedLock 的 lock/unlock 在事务边界外
+            </p>
+        </div>
+        
+        <h3>6.4 锁粒度策略</h3>
+        
+        <div class="warning-box">
+            <p>
+                <strong>锁 Key 使用 orderNo 而非 orderId</strong>
+                <br><br>
+                本项目已将状态机绑定改为使用 <code>orderNo</code> 作为 <code>machineId</code>，
+                因此锁 Key 也应使用 <code>orderNo</code>。
+            </p>
+        </div>
         
         <table>
             <thead>
@@ -864,8 +960,8 @@ shedlock:
             </thead>
             <tbody>
                 <tr>
-                    <td>订单级</td>
-                    <td><code>{ ctx -> "order:${ctx.payload.orderId}" }</code></td>
+                    <td>订单级（推荐）</td>
+                    <td><code>{ ctx -> "order:${ctx.payload.orderNo}" }</code></td>
                     <td>同一订单的事件串行执行</td>
                 </tr>
                 <tr>
@@ -881,7 +977,7 @@ shedlock:
             </tbody>
         </table>
         
-        <h3>6.4 失败处理策略</h3>
+        <h3>6.5 失败处理策略</h3>
         
         <table>
             <thead>
@@ -894,23 +990,23 @@ shedlock:
             <tbody>
                 <tr>
                     <td>技术失败（网络、DB）</td>
-                    <td><code>TaskResult.retry()</code></td>
+                    <td><code>TaskResult.Fail(retryable=true)</code></td>
                     <td>重试，最多 <code>maxRetries</code> 次</td>
                 </tr>
                 <tr>
                     <td>业务失败（状态机拒绝）</td>
-                    <td><code>TaskResult.fail(reason)</code></td>
-                    <td>不重试，记录日志</td>
+                    <td><code>TaskResult.Fail(retryable=false, reason)</code></td>
+                    <td>不重试，调用 onFinalFailure()</td>
                 </tr>
                 <tr>
                     <td>成功</td>
-                    <td><code>TaskResult.success()</code></td>
+                    <td><code>TaskResult.Success</code></td>
                     <td>任务完成</td>
                 </tr>
             </tbody>
         </table>
         
-        <h3>6.5 监控指标</h3>
+        <h3>6.6 监控指标</h3>
         
         <ul>
             <li><strong>任务执行延迟</strong>：<code>execution_time</code> 与当前时间的差距</li>
@@ -946,7 +1042,7 @@ shedlock:
         <hr style="margin: 40px 0; border: none; border-top: 2px solid #e2e8f0;">
         
         <p style="text-align: center; color: #718096; font-size: 0.9em;">
-            文档版本：3.0 | 更新日期：2026-07-14 | 项目：springboot-state-machine
+            文档版本：4.0 | 更新日期：2026-07-17 | 项目：springboot-state-machine
         </p>
     </div>
     
