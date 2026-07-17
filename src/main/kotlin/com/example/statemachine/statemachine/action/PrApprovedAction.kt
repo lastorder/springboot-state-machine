@@ -20,10 +20,9 @@ class PrApprovedAction(
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun execute(context: StateContext<OrderStatus, OrderEvent>) {
-        log.info(">>> PrApprovedAction.execute() called!")
+        log.info("PrApprovedAction.execute() called")
 
         val message = context.message
-        log.debug("Message headers: ${message.headers}")
 
         val orderNo = message.headers.get("orderNo") as? String
         val productId = message.headers.get("productId") as? String
@@ -47,19 +46,28 @@ class PrApprovedAction(
         log.info("Processing PR_APPROVED event: orderNo={}", orderNo)
 
         try {
-            // Check if order already exists by orderNo
+            // 检查订单是否已存在
             val existingOrder = orderRepository.findByOrderNo(orderNo)
+
             if (existingOrder != null) {
-                log.info("Order already exists: id={}, orderNo={}", existingOrder.id, existingOrder.orderNo)
-                context.stateMachine.stateMachineAccessor.withRegion().resetStateMachineReactively(
-                    org.springframework.statemachine.support.DefaultStateMachineContext(
-                        OrderStatus.LOCAL_INITIALIZED,
-                        null, null, null, null, existingOrder.id.toString()
-                    )
-                ).block()
+                // 订单已存在 - 幂等处理
+                val existingStatus = stateMachineService.getCurrentStateByOrderNo(orderNo)
+
+                log.info("Order already exists: id=${existingOrder.id}, orderNo=$orderNo, currentStatus=$existingStatus")
+
+                // 幂等检查：如果订单已经在 LOCAL_INITIALIZED 或之后的状态，直接返回
+                if (existingStatus != null && existingStatus != OrderStatus.INIT) {
+                    log.info("Order already processed, skipping: orderNo=$orderNo, status=$existingStatus")
+                    return
+                }
+
+                // 订单存在但仍在 INIT 状态，可能是之前处理失败，重新处理
+                stateMachineService.initializeStateMachineByOrderNo(orderNo, OrderStatus.LOCAL_INITIALIZED)
+                log.info("Re-processed existing order: orderNo=$orderNo")
                 return
             }
 
+            // 创建新订单
             val order =
                 Order.fromPrApproved(
                     orderNo = orderNo,
@@ -70,10 +78,11 @@ class PrApprovedAction(
                 )
 
             val savedOrder = orderRepository.save(order)
-            log.info("Order saved from PR_APPROVED: id={}, orderNo={}", savedOrder.id, savedOrder.orderNo)
+            log.info("Order saved from PR_APPROVED: id=${savedOrder.id}, orderNo=${savedOrder.orderNo}")
 
-            // Initialize state machine with the new order ID
-            stateMachineService.initializeStateMachine(savedOrder.id!!, OrderStatus.LOCAL_INITIALIZED)
+            // 使用 orderNo 作为 machineId 初始化状态机
+            stateMachineService.initializeStateMachineByOrderNo(orderNo, OrderStatus.LOCAL_INITIALIZED)
+            log.info("State machine initialized with orderNo: $orderNo")
         } catch (e: Exception) {
             log.error("Error in PrApprovedAction: ${e.message}", e)
         }

@@ -7,15 +7,10 @@ import com.example.statemachine.statemachine.action.SendCoeAction
 import com.example.statemachine.statemachine.action.SyncDealAction
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Configuration
-import org.springframework.statemachine.StateMachine
-import org.springframework.statemachine.action.Action
-import org.springframework.statemachine.action.ActionListener
 import org.springframework.statemachine.config.EnableStateMachineFactory
 import org.springframework.statemachine.config.StateMachineConfigurerAdapter
 import org.springframework.statemachine.config.builders.StateMachineStateConfigurer
 import org.springframework.statemachine.config.builders.StateMachineTransitionConfigurer
-import org.springframework.statemachine.listener.StateMachineListenerAdapter
-import org.springframework.statemachine.transition.Transition
 
 @Configuration
 @EnableStateMachineFactory

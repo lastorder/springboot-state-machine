@@ -15,20 +15,23 @@ class SyncDealAction(
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun execute(context: StateContext<OrderStatus, OrderEvent>) {
-        val message = context.message
-        val orderId = message.headers.get("orderId", Long::class.java)
+        // 从 message header 获取 orderNo
+        val orderNo =
+            context.message?.headers?.get("orderNo") as? String
+                // fallback: 从状态机 ID 获取（machineId 就是 orderNo）
+                ?: context.stateMachine.id
 
-        if (orderId == null) {
-            log.error("Missing orderId header")
+        if (orderNo.isNullOrBlank()) {
+            log.error("Cannot determine orderNo from context")
             return
         }
 
-        log.info("Syncing order to deal service: orderId={}", orderId)
+        log.info("Syncing order to deal service: orderNo={}", orderNo)
         try {
-            dealClient.syncOrder(orderId)
-            log.info("Successfully synced order to deal service: orderId={}", orderId)
+            dealClient.syncOrderByOrderNo(orderNo)
+            log.info("Successfully synced order to deal service: orderNo={}", orderNo)
         } catch (e: Exception) {
-            log.error("Failed to sync order to deal service: orderId={}", orderId, e)
+            log.error("Failed to sync order to deal service: orderNo={}", orderNo, e)
         }
     }
 }

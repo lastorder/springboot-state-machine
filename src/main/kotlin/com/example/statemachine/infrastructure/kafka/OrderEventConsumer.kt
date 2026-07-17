@@ -4,15 +4,16 @@ import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.infrastructure.kafka.dto.DomEvent
 import com.example.statemachine.infrastructure.kafka.dto.PrApprovedEvent
 import com.example.statemachine.infrastructure.kafka.dto.VomEvent
-import com.example.statemachine.order.service.OrderCommandService
+import com.example.statemachine.statemachine.service.StateMachineService
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
+import java.math.BigDecimal
 
 @Component
 class OrderEventConsumer(
-    private val orderCommandService: OrderCommandService,
+    private val stateMachineService: StateMachineService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -24,16 +25,17 @@ class OrderEventConsumer(
         val event = record.value()
         log.info("Received PR_APPROVED event: orderNo=${event.orderNo}")
 
-        orderCommandService.submitOrderEvent(
-            orderId = event.orderId,
+        // 使用 orderNo 作为状态机 ID
+        stateMachineService.sendEventByOrderNo(
+            orderNo = event.orderNo,
             event = OrderEvent.PR_APPROVED,
             headers =
-                mapOf(
+                mapOf<String, Any>(
                     "orderNo" to event.orderNo,
-                    "productId" to event.productId,
-                    "productName" to event.productName,
-                    "quantity" to event.quantity,
-                    "amount" to event.amount,
+                    "productId" to (event.productId ?: ""),
+                    "productName" to (event.productName ?: ""),
+                    "quantity" to (event.quantity ?: 0),
+                    "amount" to (event.amount ?: BigDecimal.ZERO),
                 ),
         )
     }
@@ -44,10 +46,11 @@ class OrderEventConsumer(
     )
     fun onVom(record: ConsumerRecord<String, VomEvent>) {
         val event = record.value()
-        log.info("Received VOM event: orderId=${event.orderId}")
+        log.info("Received VOM event: orderNo=${event.orderNo}")
 
-        orderCommandService.submitOrderEvent(
-            orderId = event.orderId,
+        // 使用 orderNo 作为状态机 ID
+        stateMachineService.sendEventByOrderNo(
+            orderNo = event.orderNo,
             event = OrderEvent.VOM,
         )
     }
@@ -58,10 +61,11 @@ class OrderEventConsumer(
     )
     fun onDom(record: ConsumerRecord<String, DomEvent>) {
         val event = record.value()
-        log.info("Received DOM event: orderId=${event.orderId}")
+        log.info("Received DOM event: orderNo=${event.orderNo}")
 
-        orderCommandService.submitOrderEvent(
-            orderId = event.orderId,
+        // 使用 orderNo 作为状态机 ID
+        stateMachineService.sendEventByOrderNo(
+            orderNo = event.orderNo,
             event = OrderEvent.DOM,
         )
     }
@@ -72,10 +76,11 @@ class OrderEventConsumer(
     )
     fun onVomFailed(record: ConsumerRecord<String, VomEvent>) {
         val event = record.value()
-        log.info("Received VOM_FAILED event: orderId=${event.orderId}")
+        log.info("Received VOM_FAILED event: orderNo=${event.orderNo}")
 
-        orderCommandService.submitOrderEvent(
-            orderId = event.orderId,
+        // 使用 orderNo 作为状态机 ID
+        stateMachineService.sendEventByOrderNo(
+            orderNo = event.orderNo,
             event = OrderEvent.VOM_FAILED,
         )
     }

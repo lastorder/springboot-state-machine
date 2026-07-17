@@ -39,8 +39,11 @@ spring:
 
 logging:
   level:
+    com.example.statemachine: INFO
     org.springframework.statemachine: DEBUG
-    com.example.statemachine.statemachine: DEBUG
+    org.apache.kafka: INFO
+    org.springframework.kafka: INFO
+    org.hibernate: INFO
 
 server:
   port: 8080

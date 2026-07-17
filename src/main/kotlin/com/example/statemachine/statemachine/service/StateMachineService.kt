@@ -2,6 +2,7 @@ package com.example.statemachine.statemachine.service
 
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
+import com.example.statemachine.infrastructure.persistence.repository.OrderJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.messaging.support.MessageBuilder
 import org.springframework.statemachine.StateMachine
@@ -16,43 +17,49 @@ class StateMachineService(
     private val stateMachineFactory: StateMachineFactory<OrderStatus, OrderEvent>,
     private val jpaStateMachineRepository: JpaStateMachineRepository,
     private val stateMachineListener: org.springframework.statemachine.listener.StateMachineListenerAdapter<OrderStatus, OrderEvent>,
+    private val orderJpaRepository: OrderJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    fun sendEvent(
-        orderId: Long,
+    /**
+     * 发送事件（使用 orderNo 作为 machineId）
+     */
+    fun sendEventByOrderNo(
+        orderNo: String,
         event: OrderEvent,
-    ): Boolean = sendEvent(orderId, event, emptyMap())
+    ): Boolean = sendEventByOrderNo(orderNo, event, emptyMap())
 
-    fun sendEvent(
-        orderId: Long,
+    /**
+     * 发送事件（使用 orderNo 作为 machineId）
+     */
+    fun sendEventByOrderNo(
+        orderNo: String,
         event: OrderEvent,
         headers: Map<String, Any>,
     ): Boolean {
-        val machineId = orderId.toString()
-        log.info("Sending event: orderId=$orderId, event=$event, machineId=$machineId")
+        val machineId = orderNo
+        log.info("Sending event: orderNo=$orderNo, event=$event, machineId=$machineId")
 
         val stateMachine = stateMachineFactory.getStateMachine(machineId)
 
         return try {
             stateMachine.addStateListener(stateMachineListener)
             restoreStateMachine(stateMachine, machineId).block()
-            
-            // Start the state machine before sending event (required for transitions)
+
             log.debug("Starting state machine before sending event")
             stateMachine.startReactively().block()
-            
+
             log.debug("State machine state after start: ${stateMachine.state.id}")
 
             val message =
                 MessageBuilder
                     .withPayload(event)
-                    .setHeader("orderId", orderId)
+                    .setHeader("orderNo", orderNo)
                     .apply { headers.forEach { (k, v) -> setHeader(k, v) } }
                     .build()
 
             val result = sendEventReactive(stateMachine, message).block() ?: false
-            log.info("Event send result: orderId=$orderId, event=$event, accepted=$result, newState=${stateMachine.state.id}")
+            log.info("Event send result: orderNo=$orderNo, event=$event, accepted=$result, newState=${stateMachine.state.id}")
 
             if (result) {
                 persistStateMachine(stateMachine, machineId)
@@ -61,44 +68,89 @@ class StateMachineService(
 
             result
         } catch (e: Exception) {
-            log.error("Error sending event: orderId=$orderId, event=$event", e)
+            log.error("Error sending event: orderNo=$orderNo, event=$event", e)
             false
         } finally {
             stopStateMachine(stateMachine).block()
         }
     }
 
-    fun getCurrentState(orderId: Long): OrderStatus? {
-        val machineId = orderId.toString()
+    /**
+     * 获取当前状态（通过 orderNo）
+     */
+    fun getCurrentStateByOrderNo(orderNo: String): OrderStatus? {
+        val machineId = orderNo
         val stateMachine = stateMachineFactory.getStateMachine(machineId)
 
         return try {
             restoreStateMachine(stateMachine, machineId).block()
             stateMachine.state.id
         } catch (e: Exception) {
-            log.error("Error getting current state: orderId=$orderId", e)
+            log.error("Error getting current state: orderNo=$orderNo", e)
             null
         } finally {
             stopStateMachine(stateMachine).block()
         }
     }
 
-    fun initializeStateMachine(
-        orderId: Long,
+    /**
+     * 初始化状态机（使用 orderNo 作为 machineId）
+     */
+    fun initializeStateMachineByOrderNo(
+        orderNo: String,
         initialState: OrderStatus = OrderStatus.INIT,
     ) {
-        val machineId = orderId.toString()
+        val machineId = orderNo
         val stateMachine = stateMachineFactory.getStateMachine(machineId)
 
         try {
             resetStateMachineContext(stateMachine, initialState, machineId).block()
             persistStateMachine(stateMachine, machineId)
-            log.info("Initialized state machine: orderId=$orderId, initialState=$initialState")
+            log.info("Initialized state machine: orderNo=$orderNo, initialState=$initialState")
         } catch (e: Exception) {
-            log.error("Error initializing state machine: orderId=$orderId", e)
+            log.error("Error initializing state machine: orderNo=$orderNo", e)
         } finally {
             stopStateMachine(stateMachine).block()
         }
+    }
+
+    /**
+     * 旧的 API（使用 orderId）- 内部转换为 orderNo
+     * @deprecated 请使用 sendEventByOrderNo
+     */
+    @Deprecated("Use sendEventByOrderNo instead", ReplaceWith("sendEventByOrderNo(orderNo, event, headers)"))
+    fun sendEvent(
+        orderId: Long,
+        event: OrderEvent,
+    ): Boolean = sendEvent(orderId, event, emptyMap())
+
+    /**
+     * 旧的 API（使用 orderId）- 内部转换为 orderNo
+     * @deprecated 请使用 sendEventByOrderNo
+     */
+    @Deprecated("Use sendEventByOrderNo instead")
+    fun sendEvent(
+        orderId: Long,
+        event: OrderEvent,
+        headers: Map<String, Any>,
+    ): Boolean {
+        // 查找 orderNo
+        val orderNo = orderJpaRepository.findIdByOrderNo(headers["orderNo"] as? String ?: "")
+        if (orderNo == null && orderId > 0) {
+            val entity = orderJpaRepository.findById(orderId).orElse(null)
+            if (entity != null) {
+                return sendEventByOrderNo(entity.orderNo, event, headers)
+            }
+        }
+
+        // 如果有 orderNo 在 headers 中，使用它
+        val orderNoFromHeaders = headers["orderNo"] as? String
+        if (orderNoFromHeaders != null) {
+            return sendEventByOrderNo(orderNoFromHeaders, event, headers)
+        }
+
+        log.warn("Cannot determine orderNo for orderId=$orderId, event=$event")
+        return false
     }
 
     private fun sendEventReactive(
@@ -109,14 +161,11 @@ class StateMachineService(
             .sendEvent(Mono.just(message))
             .doOnNext { result ->
                 log.debug("Event result: ${result.resultType}, event=${message.payload}, state=${stateMachine.state.id}")
-            }
-            .next()
+            }.next()
             .map { it.resultType == org.springframework.statemachine.StateMachineEventResult.ResultType.ACCEPTED }
             .onErrorReturn(false)
 
     private fun stopStateMachine(stateMachine: StateMachine<OrderStatus, OrderEvent>): Mono<Void> = stateMachine.stopReactively()
-
-    private fun startStateMachine(stateMachine: StateMachine<OrderStatus, OrderEvent>): Mono<Void> = stateMachine.startReactively()
 
     private fun restoreStateMachine(
         stateMachine: StateMachine<OrderStatus, OrderEvent>,
