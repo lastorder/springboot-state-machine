@@ -2,7 +2,7 @@ package com.example.statemachine.statemachine.config
 
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
-import com.example.statemachine.statemachine.service.OrderStatusSyncService
+import com.example.statemachine.infrastructure.persistence.repository.OrderJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.messaging.Message
 import org.springframework.statemachine.StateMachine
@@ -10,10 +10,12 @@ import org.springframework.statemachine.listener.StateMachineListenerAdapter
 import org.springframework.statemachine.state.State
 import org.springframework.statemachine.transition.Transition
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Propagation
+import org.springframework.transaction.annotation.Transactional
 
 @Component
 class StateMachineListener(
-    private val orderStatusSyncService: OrderStatusSyncService,
+    private val orderJpaRepository: OrderJpaRepository,
 ) : StateMachineListenerAdapter<OrderStatus, OrderEvent>() {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -31,7 +33,6 @@ class StateMachineListener(
     }
 
     override fun stateMachineStopped(stateMachine: StateMachine<OrderStatus, OrderEvent>) {
-        // 状态机停止时同步最终状态到订单表
         val orderNo = stateMachine.id
         val finalState = stateMachine.state?.id
 
@@ -68,11 +69,8 @@ class StateMachineListener(
         log.debug("State exited: ${state.id}")
     }
 
-    /**
-     * 同步订单状态
-     * machineId 就是 orderNo
-     */
-    private fun syncOrderStatus(
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    protected fun syncOrderStatus(
         orderNo: String,
         newStatus: OrderStatus,
     ) {
@@ -81,11 +79,14 @@ class StateMachineListener(
             return
         }
 
-        // 使用独立事务的服务进行状态同步
         try {
-            orderStatusSyncService.syncOrderStatusByOrderNo(orderNo, newStatus)
+            val updated = orderJpaRepository.updateStatusByOrderNo(orderNo, newStatus)
+            if (updated > 0) {
+                log.info("Synced order status: orderNo=$orderNo, status=$newStatus")
+            } else {
+                log.warn("Order not found for status sync: orderNo=$orderNo")
+            }
         } catch (e: Exception) {
-            // 状态同步失败不影响状态机执行，只记录日志
             log.error("Status sync failed but state machine continues: orderNo=$orderNo, status=$newStatus", e)
         }
     }
