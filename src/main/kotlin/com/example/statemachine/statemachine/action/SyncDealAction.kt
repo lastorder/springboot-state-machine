@@ -15,11 +15,7 @@ class SyncDealAction(
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun execute(context: StateContext<OrderStatus, OrderEvent>) {
-        // 从 message header 获取 orderNo
-        val orderNo =
-            context.message?.headers?.get("orderNo") as? String
-                // fallback: 从状态机 ID 获取（machineId 就是 orderNo）
-                ?: context.stateMachine.id
+        val orderNo = OrderActionUtils.extractOrderNo(context)
 
         if (orderNo.isNullOrBlank()) {
             log.error("Cannot determine orderNo from context")

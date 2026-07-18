@@ -13,28 +13,36 @@ abstract class BarrierAggregate(
     val aggregateType: String = this::class.java.name
 
     fun initialize(aggregateKey: String) {
+        initializeWithBarriers(aggregateKey, requiredBarriers)
+    }
+
+    fun initializeWithBarriers(
+        aggregateKey: String,
+        barriers: Set<String>,
+    ) {
         val existing = repository.findByAggregateTypeAndAggregateKey(aggregateType, aggregateKey)
 
         if (existing != null) {
             val reset =
                 existing.copy(
+                    requiredBarriers = barriers,
                     passedBarriers = emptySet(),
                     initializedAt = Instant.now(),
                     updatedAt = Instant.now(),
                 )
             repository.save(reset)
-            log.info("Reinitialized barrier aggregate: key=$aggregateKey, waiting=${existing.waitingDuration}")
+            log.info("Reinitialized barrier aggregate: key=$aggregateKey, barriers=$barriers, waiting=${existing.waitingDuration}")
         } else {
             val record =
                 BarrierAggregateRecord(
                     aggregateType = aggregateType,
                     aggregateKey = aggregateKey,
-                    requiredBarriers = requiredBarriers,
+                    requiredBarriers = barriers,
                     passedBarriers = emptySet(),
                     initializedAt = Instant.now(),
                 )
             repository.save(record)
-            log.info("Created barrier aggregate: key=$aggregateKey, required=$requiredBarriers")
+            log.info("Created barrier aggregate: key=$aggregateKey, required=$barriers")
         }
     }
 

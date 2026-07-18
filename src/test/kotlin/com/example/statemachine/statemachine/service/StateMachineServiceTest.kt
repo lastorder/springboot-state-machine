@@ -2,7 +2,6 @@ package com.example.statemachine.statemachine.service
 
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
-import com.example.statemachine.infrastructure.persistence.repository.OrderJpaRepository
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -25,7 +24,6 @@ class StateMachineServiceTest {
     private lateinit var stateMachineFactory: StateMachineFactory<OrderStatus, OrderEvent>
     private lateinit var jpaStateMachineRepository: JpaStateMachineRepository
     private lateinit var stateMachine: StateMachine<OrderStatus, OrderEvent>
-    private lateinit var orderJpaRepository: OrderJpaRepository
     private lateinit var stateMachineService: StateMachineService
 
     @BeforeEach
@@ -33,7 +31,6 @@ class StateMachineServiceTest {
         stateMachineFactory = mockk()
         jpaStateMachineRepository = mockk()
         stateMachine = mockk(relaxed = true)
-        orderJpaRepository = mockk()
         val stateMachineListener =
             mockk<org.springframework.statemachine.listener.StateMachineListenerAdapter<OrderStatus, OrderEvent>>(relaxed = true)
         stateMachineService =
@@ -41,7 +38,6 @@ class StateMachineServiceTest {
                 stateMachineFactory,
                 jpaStateMachineRepository,
                 stateMachineListener,
-                orderJpaRepository,
             )
     }
 

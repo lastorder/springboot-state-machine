@@ -16,7 +16,7 @@ class OrderStateMachineTaskSpec(
     lockProvider: LockProvider,
 ) : LockingTaskSpec<OrderEventPayload>(
         lockProvider = lockProvider,
-        lockKeyProvider = { ctx -> "order:${ctx.payload.orderId}" },
+        lockKeyProvider = { ctx -> "order:${ctx.payload.orderNo}" },
     ) {
     override val taskName: String = TASK_NAME
     override val maxRetries: Int = 5
@@ -26,12 +26,12 @@ class OrderStateMachineTaskSpec(
 
     override fun executeWithLock(context: TaskContext<OrderEventPayload>): TaskResult {
         val payload = context.payload
-        log.info("Processing order event: orderId={}, event={}", payload.orderId, payload.event)
+        log.info("Processing order event: orderNo={}, event={}", payload.orderNo, payload.event)
 
         return try {
             val accepted =
                 stateMachineService.sendEvent(
-                    payload.orderId,
+                    payload.orderNo,
                     payload.event,
                     payload.headers.filterValues { it != null }.mapValues { it.value!! },
                 )
@@ -42,7 +42,7 @@ class OrderStateMachineTaskSpec(
                 TaskResult.failWithoutRetry("Event ${payload.event} rejected by state machine")
             }
         } catch (e: Exception) {
-            log.error("State machine error for order {}", payload.orderId, e)
+            log.error("State machine error for order {}", payload.orderNo, e)
             TaskResult.fail("State machine error: ${e.message}", e)
         }
     }

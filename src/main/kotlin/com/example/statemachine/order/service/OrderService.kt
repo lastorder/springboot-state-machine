@@ -12,7 +12,6 @@ import org.springframework.transaction.annotation.Transactional
 @Service
 class OrderService(
     private val orderRepository: OrderRepository,
-    private val orderCommandService: OrderCommandService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -25,6 +24,7 @@ class OrderService(
                 productName = request.productName,
                 quantity = request.quantity ?: 1,
                 amount = request.amount,
+                market = request.market,
             )
         val savedOrder = orderRepository.save(order)
         log.info("Created order: id=${savedOrder.id}, orderNo=${savedOrder.orderNo}")
@@ -66,6 +66,7 @@ class OrderService(
             quantity = order.quantity,
             amount = order.amount,
             status = order.status,
+            market = order.market,
             createdAt = order.createdAt,
             updatedAt = order.updatedAt,
         )

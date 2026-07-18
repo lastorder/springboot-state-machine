@@ -1,5 +1,6 @@
 package com.example.statemachine.infrastructure.kafka
 
+import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.infrastructure.kafka.dto.DomEvent
 import com.example.statemachine.infrastructure.kafka.dto.PrApprovedEvent
@@ -13,7 +14,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
-import java.math.BigDecimal
 
 class OrderEventConsumerTest {
     private lateinit var stateMachineService: StateMachineService
@@ -37,7 +37,8 @@ class OrderEventConsumerTest {
                 productId = "PROD-123",
                 productName = "Test Product",
                 quantity = 5,
-                amount = BigDecimal("100.00"),
+                amount = 100.0,
+                market = Market.DE,
             )
         val record = ConsumerRecord("pr.approved", 0, 0L, "1", event)
 
@@ -49,7 +50,7 @@ class OrderEventConsumerTest {
                 event = OrderEvent.PR_APPROVED,
                 headers =
                     match<Map<String, Any>> {
-                        it["orderNo"] == "ORD-001"
+                        it["orderNo"] == "ORD-001" && it["market"] == "DE"
                     },
             )
         }
@@ -58,7 +59,7 @@ class OrderEventConsumerTest {
     @Test
     @DisplayName("Should handle VOM event")
     fun testOnVom() {
-        val event = VomEvent(orderNo = "ORD-001", orderId = 0L)
+        val event = VomEvent(orderNo = "ORD-001")
         val record = ConsumerRecord("factory.vom", 0, 0L, "1", event)
 
         orderEventConsumer.onVom(record)
@@ -69,7 +70,7 @@ class OrderEventConsumerTest {
     @Test
     @DisplayName("Should handle DOM event")
     fun testOnDom() {
-        val event = DomEvent(orderNo = "ORD-001", orderId = 0L)
+        val event = DomEvent(orderNo = "ORD-001")
         val record = ConsumerRecord("factory.dom", 0, 0L, "1", event)
 
         orderEventConsumer.onDom(record)
@@ -80,7 +81,7 @@ class OrderEventConsumerTest {
     @Test
     @DisplayName("Should handle VOM_FAILED event with orderNo")
     fun testOnVomFailedWithOrderNo() {
-        val event = VomEvent(orderNo = "ORD-001", orderId = 0L)
+        val event = VomEvent(orderNo = "ORD-001")
         val record = ConsumerRecord("factory.vom.failed", 0, 0L, "1", event)
 
         orderEventConsumer.onVomFailed(record)

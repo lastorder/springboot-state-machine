@@ -1,5 +1,6 @@
 package com.example.statemachine.infrastructure.persistence.entity
 
+import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.domain.enums.OrderStatus
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -32,6 +33,9 @@ class OrderJpaEntity(
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     var status: OrderStatus = OrderStatus.INIT,
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    var market: Market,
     @Column(nullable = false)
     var createdAt: Instant = Instant.now(),
     @Column(nullable = false)

@@ -1,8 +1,10 @@
 package com.example.statemachine.presentation.dto
 
+import com.example.statemachine.domain.enums.Market
 import jakarta.validation.constraints.DecimalMin
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.NotNull
 import java.math.BigDecimal
 
 data class CreateOrderRequest(
@@ -14,4 +16,6 @@ data class CreateOrderRequest(
     val quantity: Int? = 1,
     @field:DecimalMin(value = "0.01", message = "Amount must be greater than 0")
     val amount: BigDecimal? = null,
+    @field:NotNull(message = "Market is required")
+    val market: Market,
 )

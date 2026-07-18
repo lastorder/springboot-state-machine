@@ -17,7 +17,7 @@ class SendCoeAction(
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun execute(context: StateContext<OrderStatus, OrderEvent>) {
-        val orderNo = extractOrderNo(context)
+        val orderNo = OrderActionUtils.extractOrderNo(context)
 
         if (orderNo.isNullOrBlank()) {
             log.error("Cannot determine orderNo from context")
@@ -30,7 +30,4 @@ class SendCoeAction(
         log.info("Initializing barrier aggregate for orderNo={}", orderNo)
         orderInitBarrierAggregate.initialize(orderNo)
     }
-
-    private fun extractOrderNo(context: StateContext<OrderStatus, OrderEvent>): String? =
-        context.message?.headers?.get("orderNo") as? String ?: context.stateMachine.id
 }

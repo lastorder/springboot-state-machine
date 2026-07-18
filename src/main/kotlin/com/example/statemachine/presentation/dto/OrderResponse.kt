@@ -1,5 +1,6 @@
 package com.example.statemachine.presentation.dto
 
+import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.domain.enums.OrderStatus
 import java.math.BigDecimal
 import java.time.Instant
@@ -12,6 +13,7 @@ data class OrderResponse(
     val quantity: Int,
     val amount: BigDecimal?,
     val status: OrderStatus,
+    val market: Market,
     val createdAt: Instant,
     val updatedAt: Instant,
 )

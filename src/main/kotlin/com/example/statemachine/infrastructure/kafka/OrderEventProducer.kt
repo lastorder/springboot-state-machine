@@ -12,19 +12,15 @@ class OrderEventProducer(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    companion object {
-        const val ORDER_EVENTS_TOPIC = "order.events"
-    }
-
     fun sendStatusChangeEvent(event: OrderStatusChangeEvent) {
         log.info("Sending order status change event: $event")
-        kafkaTemplate.send(ORDER_EVENTS_TOPIC, event.orderId.toString(), event)
+        kafkaTemplate.send(KafkaTopics.ORDER_EVENTS, event.orderId.toString(), event)
     }
 
     fun sendStatusChangeEventAsync(
         event: OrderStatusChangeEvent,
     ): CompletableFuture<org.springframework.kafka.support.SendResult<String, Any>> {
         log.info("Sending order status change event async: $event")
-        return kafkaTemplate.send(ORDER_EVENTS_TOPIC, event.orderId.toString(), event)
+        return kafkaTemplate.send(KafkaTopics.ORDER_EVENTS, event.orderId.toString(), event)
     }
 }

@@ -2,7 +2,6 @@ package com.example.statemachine.statemachine.service
 
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
-import com.example.statemachine.infrastructure.persistence.repository.OrderJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.messaging.support.MessageBuilder
 import org.springframework.statemachine.StateMachine
@@ -17,7 +16,6 @@ class StateMachineService(
     private val stateMachineFactory: StateMachineFactory<OrderStatus, OrderEvent>,
     private val jpaStateMachineRepository: JpaStateMachineRepository,
     private val stateMachineListener: org.springframework.statemachine.listener.StateMachineListenerAdapter<OrderStatus, OrderEvent>,
-    private val orderJpaRepository: OrderJpaRepository,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -69,19 +67,6 @@ class StateMachineService(
         }
     }
 
-    @Deprecated("Use sendEvent(orderNo, event) instead")
-    fun sendEventByOrderNo(
-        orderNo: String,
-        event: OrderEvent,
-    ): Boolean = sendEvent(orderNo, event)
-
-    @Deprecated("Use sendEvent(orderNo, event, headers) instead")
-    fun sendEventByOrderNo(
-        orderNo: String,
-        event: OrderEvent,
-        headers: Map<String, Any>,
-    ): Boolean = sendEvent(orderNo, event, headers)
-
     fun getCurrentStateByOrderNo(orderNo: String): OrderStatus? {
         val machineId = orderNo
         val stateMachine = stateMachineFactory.getStateMachine(machineId)
@@ -113,35 +98,6 @@ class StateMachineService(
         } finally {
             stopStateMachine(stateMachine).block()
         }
-    }
-
-    @Deprecated("Use sendEvent(orderNo, event) instead")
-    fun sendEvent(
-        orderId: Long,
-        event: OrderEvent,
-    ): Boolean = sendEvent(orderId, event, emptyMap())
-
-    @Deprecated("Use sendEvent(orderNo, event, headers) instead")
-    fun sendEvent(
-        orderId: Long,
-        event: OrderEvent,
-        headers: Map<String, Any>,
-    ): Boolean {
-        val orderNo = orderJpaRepository.findIdByOrderNo(headers["orderNo"] as? String ?: "")
-        if (orderNo == null && orderId > 0) {
-            val entity = orderJpaRepository.findById(orderId).orElse(null)
-            if (entity != null) {
-                return sendEvent(entity.orderNo, event, headers)
-            }
-        }
-
-        val orderNoFromHeaders = headers["orderNo"] as? String
-        if (orderNoFromHeaders != null) {
-            return sendEvent(orderNoFromHeaders, event, headers)
-        }
-
-        log.warn("Cannot determine orderNo for orderId=$orderId, event=$event")
-        return false
     }
 
     private fun sendEventReactive(

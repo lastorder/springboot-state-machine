@@ -9,11 +9,5 @@ class MockDealClient : DealClient {
 
     override fun syncOrderByOrderNo(orderNo: String) {
         log.info("[Mock] Syncing order to deal service: orderNo={}", orderNo)
-        // 模拟 REST API 调用
-    }
-
-    @Deprecated("Use syncOrderByOrderNo instead", ReplaceWith("syncOrderByOrderNo(orderNo)"))
-    override fun syncOrder(orderId: Long) {
-        log.info("[Mock] Syncing order to deal service: orderId={}", orderId)
     }
 }

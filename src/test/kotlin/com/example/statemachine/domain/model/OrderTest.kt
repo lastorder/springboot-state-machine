@@ -1,5 +1,6 @@
 package com.example.statemachine.domain.model
 
+import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.domain.enums.OrderStatus
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -17,6 +18,7 @@ class OrderTest {
                 orderNo = "ORD-001",
                 quantity = 5,
                 status = OrderStatus.INIT,
+                market = Market.DE,
             )
 
         order.updateStatus(OrderStatus.LOCAL_INITIALIZED)
@@ -35,6 +37,7 @@ class OrderTest {
                 productName = "Test Product",
                 quantity = 5,
                 amount = BigDecimal("100.00"),
+                market = Market.DE,
             )
 
         assertEquals("ORD-001", order.orderNo)
@@ -43,6 +46,7 @@ class OrderTest {
         assertEquals(5, order.quantity)
         assertEquals(BigDecimal("100.00"), order.amount)
         assertEquals(OrderStatus.INIT, order.status)
+        assertEquals(Market.DE, order.market)
     }
 
     @Test
@@ -55,19 +59,22 @@ class OrderTest {
                 productName = null,
                 quantity = null,
                 amount = null,
+                market = Market.IT,
             )
 
         assertEquals("ORD-002", order.orderNo)
         assertEquals(1, order.quantity)
         assertEquals(OrderStatus.INIT, order.status)
+        assertEquals(Market.IT, order.market)
     }
 
     @Test
     @DisplayName("Should have correct default state")
     fun testDefaultState() {
-        val order = Order(orderNo = "ORD-003")
+        val order = Order(orderNo = "ORD-003", market = Market.DE)
 
         assertEquals(OrderStatus.INIT, order.status)
+        assertEquals(Market.DE, order.market)
         assertNotNull(order.createdAt)
         assertNotNull(order.updatedAt)
     }

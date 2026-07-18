@@ -1,5 +1,6 @@
 package com.example.statemachine.integration
 
+import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.repository.OrderRepository
 import com.example.statemachine.presentation.dto.CreateOrderRequest
@@ -43,6 +44,7 @@ class OrderFlowIntegrationTest {
                 productName = "Test Product",
                 quantity = 2,
                 amount = BigDecimal("100.00"),
+                market = Market.DE,
             )
 
         mockMvc
@@ -58,6 +60,7 @@ class OrderFlowIntegrationTest {
             .andExpect(MockMvcResultMatchers.jsonPath("$.quantity").value(2))
             .andExpect(MockMvcResultMatchers.jsonPath("$.amount").value(100.00))
             .andExpect(MockMvcResultMatchers.jsonPath("$.status").value("INIT"))
+            .andExpect(MockMvcResultMatchers.jsonPath("$.market").value("DE"))
     }
 
     @Test
@@ -70,6 +73,7 @@ class OrderFlowIntegrationTest {
                 productName = "Test Product",
                 quantity = 2,
                 amount = BigDecimal("100.00"),
+                market = Market.IT,
             )
 
         val result =
@@ -90,6 +94,7 @@ class OrderFlowIntegrationTest {
             .andExpect(MockMvcResultMatchers.status().isOk)
             .andExpect(MockMvcResultMatchers.jsonPath("$.id").value(orderId))
             .andExpect(MockMvcResultMatchers.jsonPath("$.orderNo").value(request.orderNo))
+            .andExpect(MockMvcResultMatchers.jsonPath("$.market").value("IT"))
     }
 
     @Test
@@ -112,6 +117,7 @@ class OrderFlowIntegrationTest {
                     productName = "Product $i",
                     quantity = i + 1,
                     amount = BigDecimal("${i + 1}0.00"),
+                    market = Market.DE,
                 )
             mockMvc
                 .perform(
@@ -146,6 +152,7 @@ class OrderFlowIntegrationTest {
                 productName = "Test Product",
                 quantity = 1,
                 amount = BigDecimal("50.00"),
+                market = Market.DE,
             )
 
         val createResult =

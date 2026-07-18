@@ -1,9 +1,9 @@
 package com.example.statemachine.service
 
+import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.model.Order
 import com.example.statemachine.domain.repository.OrderRepository
-import com.example.statemachine.order.service.OrderCommandService
 import com.example.statemachine.order.service.OrderService
 import com.example.statemachine.presentation.dto.CreateOrderRequest
 import io.mockk.every
@@ -19,20 +19,18 @@ import java.math.BigDecimal
 
 class OrderServiceTest {
     private lateinit var orderRepository: OrderRepository
-    private lateinit var orderCommandService: OrderCommandService
     private lateinit var orderService: OrderService
 
     @BeforeEach
     fun setUp() {
         orderRepository = mockk()
-        orderCommandService = mockk(relaxed = true)
-        orderService = OrderService(orderRepository, orderCommandService)
+        orderService = OrderService(orderRepository)
     }
 
     @Test
     @DisplayName("Should create order")
     fun testCreateOrder() {
-        val request = CreateOrderRequest("ORD-001", "PROD-123", "Test Product", 2, BigDecimal("100.00"))
+        val request = CreateOrderRequest("ORD-001", "PROD-123", "Test Product", 2, BigDecimal("100.00"), Market.DE)
         every { orderRepository.save(any()) } returns
             Order(
                 id = 1L,
@@ -42,6 +40,7 @@ class OrderServiceTest {
                 quantity = request.quantity ?: 1,
                 amount = request.amount,
                 status = OrderStatus.INIT,
+                market = request.market,
             )
 
         val result = orderService.createOrder(request)
@@ -54,6 +53,7 @@ class OrderServiceTest {
         assertEquals(2, result.quantity)
         assertEquals(BigDecimal("100.00"), result.amount)
         assertEquals(OrderStatus.INIT, result.status)
+        assertEquals(Market.DE, result.market)
     }
 
     @Test
@@ -68,6 +68,7 @@ class OrderServiceTest {
                 quantity = 2,
                 amount = BigDecimal("100.00"),
                 status = OrderStatus.INIT,
+                market = Market.DE,
             )
         every { orderRepository.findById(1L) } returns order
 
@@ -76,6 +77,7 @@ class OrderServiceTest {
         assertNotNull(result)
         assertEquals(1L, result!!.id)
         assertEquals("ORD-001", result.orderNo)
+        assertEquals(Market.DE, result.market)
     }
 
     @Test
@@ -101,6 +103,7 @@ class OrderServiceTest {
                     quantity = 1,
                     amount = BigDecimal("10.00"),
                     status = OrderStatus.INIT,
+                    market = Market.DE,
                 ),
                 Order(
                     id = 2L,
@@ -110,6 +113,7 @@ class OrderServiceTest {
                     quantity = 2,
                     amount = BigDecimal("20.00"),
                     status = OrderStatus.LOCAL_INITIALIZED,
+                    market = Market.IT,
                 ),
             )
         every { orderRepository.findAll() } returns orders
@@ -127,6 +131,7 @@ class OrderServiceTest {
                 id = 1L,
                 orderNo = "ORD-001",
                 status = OrderStatus.INIT,
+                market = Market.DE,
             )
         every { orderRepository.findById(1L) } returns order
         every { orderRepository.save(any()) } returns order
@@ -155,6 +160,7 @@ class OrderServiceTest {
                 id = 1L,
                 orderNo = "ORD-001",
                 status = OrderStatus.INIT,
+                market = Market.DE,
             )
         every { orderRepository.findById(1L) } returns order
 
@@ -162,6 +168,7 @@ class OrderServiceTest {
 
         assertNotNull(result)
         assertEquals(1L, result!!.id)
+        assertEquals(Market.DE, result.market)
     }
 
     @Test
@@ -172,6 +179,7 @@ class OrderServiceTest {
                 id = 1L,
                 orderNo = "ORD-001",
                 status = OrderStatus.INIT,
+                market = Market.DE,
             )
         every { orderRepository.save(order) } returns order
 

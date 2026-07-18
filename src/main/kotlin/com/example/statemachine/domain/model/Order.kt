@@ -1,5 +1,6 @@
 package com.example.statemachine.domain.model
 
+import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.domain.enums.OrderStatus
 import java.math.BigDecimal
 import java.time.Instant
@@ -12,6 +13,7 @@ class Order(
     var quantity: Int = 1,
     var amount: BigDecimal? = null,
     var status: OrderStatus = OrderStatus.INIT,
+    var market: Market,
     var createdAt: Instant = Instant.now(),
     var updatedAt: Instant = Instant.now(),
     var version: Long = 0,
@@ -28,6 +30,7 @@ class Order(
             productName: String?,
             quantity: Int?,
             amount: BigDecimal?,
+            market: Market,
         ): Order =
             Order(
                 orderNo = orderNo,
@@ -35,6 +38,7 @@ class Order(
                 productName = productName,
                 quantity = quantity ?: 1,
                 amount = amount,
+                market = market,
             )
     }
 }

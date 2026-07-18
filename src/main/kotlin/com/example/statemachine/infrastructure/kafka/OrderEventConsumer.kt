@@ -11,7 +11,6 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
-import java.math.BigDecimal
 
 @Component
 class OrderEventConsumer(
@@ -21,7 +20,7 @@ class OrderEventConsumer(
     private val log = LoggerFactory.getLogger(javaClass)
 
     @KafkaListener(
-        topics = ["pr.approved"],
+        topics = [KafkaTopics.PR_APPROVED],
         properties = ["spring.json.value.default.type=com.example.statemachine.infrastructure.kafka.dto.PrApprovedEvent"],
     )
     fun onPrApproved(record: ConsumerRecord<String, PrApprovedEvent>) {
@@ -37,13 +36,14 @@ class OrderEventConsumer(
                     "productId" to (event.productId ?: ""),
                     "productName" to (event.productName ?: ""),
                     "quantity" to (event.quantity ?: 0),
-                    "amount" to (event.amount ?: BigDecimal.ZERO),
+                    "amount" to (event.amount ?: 0.0),
+                    "market" to event.market.name,
                 ),
         )
     }
 
     @KafkaListener(
-        topics = ["factory.vom"],
+        topics = [KafkaTopics.FACTORY_VOM],
         properties = ["spring.json.value.default.type=com.example.statemachine.infrastructure.kafka.dto.VomEvent"],
     )
     fun onVom(record: ConsumerRecord<String, VomEvent>) {
@@ -54,7 +54,7 @@ class OrderEventConsumer(
     }
 
     @KafkaListener(
-        topics = ["factory.dom"],
+        topics = [KafkaTopics.FACTORY_DOM],
         properties = ["spring.json.value.default.type=com.example.statemachine.infrastructure.kafka.dto.DomEvent"],
     )
     fun onDom(record: ConsumerRecord<String, DomEvent>) {
@@ -65,7 +65,7 @@ class OrderEventConsumer(
     }
 
     @KafkaListener(
-        topics = ["factory.vom.failed"],
+        topics = [KafkaTopics.FACTORY_VOM_FAILED],
         properties = ["spring.json.value.default.type=com.example.statemachine.infrastructure.kafka.dto.VomEvent"],
     )
     fun onVomFailed(record: ConsumerRecord<String, VomEvent>) {

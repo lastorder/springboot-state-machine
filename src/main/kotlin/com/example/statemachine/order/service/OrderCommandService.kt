@@ -13,17 +13,17 @@ class OrderCommandService(
     private val orderStateMachineTaskSpec: OrderStateMachineTaskSpec,
 ) {
     fun submitOrderEvent(
-        orderId: Long,
+        orderNo: String,
         event: OrderEvent,
         headers: Map<String, Any?> = emptyMap(),
     ) {
-        val instanceId = generateInstanceId(orderId, event)
-        val payload = OrderEventPayload(orderId, event, headers)
+        val instanceId = generateInstanceId(orderNo, event)
+        val payload = OrderEventPayload(orderNo, event, headers)
         taskScheduler.submit(orderStateMachineTaskSpec, instanceId, payload)
     }
 
     private fun generateInstanceId(
-        orderId: Long,
+        orderNo: String,
         event: OrderEvent,
-    ): String = "order-$orderId-${event.name}-${UUID.randomUUID()}"
+    ): String = "order-$orderNo-${event.name}-${UUID.randomUUID()}"
 }
