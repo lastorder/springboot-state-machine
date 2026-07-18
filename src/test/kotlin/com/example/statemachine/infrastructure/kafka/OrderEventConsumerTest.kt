@@ -2,12 +2,12 @@ package com.example.statemachine.infrastructure.kafka
 
 import com.example.statemachine.application.barrier.OrderInitBarrier
 import com.example.statemachine.application.barrier.OrderInitBarrierAggregate
+import com.example.statemachine.application.service.OrderCommandService
 import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.infrastructure.kafka.dto.DomEvent
 import com.example.statemachine.infrastructure.kafka.dto.PrApprovedEvent
 import com.example.statemachine.infrastructure.kafka.dto.VomEvent
-import com.example.statemachine.statemachine.service.StateMachineService
 import io.mockk.mockk
 import io.mockk.verify
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -16,15 +16,15 @@ import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 
 class OrderEventConsumerTest {
-    private lateinit var stateMachineService: StateMachineService
+    private lateinit var orderCommandService: OrderCommandService
     private lateinit var orderInitBarrierAggregate: OrderInitBarrierAggregate
     private lateinit var orderEventConsumer: OrderEventConsumer
 
     @BeforeEach
     fun setUp() {
-        stateMachineService = mockk(relaxed = true)
+        orderCommandService = mockk(relaxed = true)
         orderInitBarrierAggregate = mockk(relaxed = true)
-        orderEventConsumer = OrderEventConsumer(stateMachineService, orderInitBarrierAggregate)
+        orderEventConsumer = OrderEventConsumer(orderCommandService, orderInitBarrierAggregate)
     }
 
     @Test
@@ -45,11 +45,11 @@ class OrderEventConsumerTest {
         orderEventConsumer.onPrApproved(record)
 
         verify {
-            stateMachineService.sendEvent(
+            orderCommandService.submitOrderEvent(
                 orderNo = "ORD-001",
                 event = OrderEvent.PR_APPROVED,
                 headers =
-                    match<Map<String, Any>> {
+                    match<Map<String, Any?>> {
                         it["orderNo"] == "ORD-001" && it["market"] == "DE"
                     },
             )
@@ -87,7 +87,7 @@ class OrderEventConsumerTest {
         orderEventConsumer.onVomFailed(record)
 
         verify {
-            stateMachineService.sendEvent(
+            orderCommandService.submitOrderEvent(
                 orderNo = "ORD-001",
                 event = OrderEvent.VOM_FAILED,
             )

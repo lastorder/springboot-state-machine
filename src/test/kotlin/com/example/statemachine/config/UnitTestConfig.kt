@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
 import org.springframework.kafka.core.KafkaTemplate
+import org.springframework.statemachine.data.jpa.JpaStateMachineRepository
 
 @TestConfiguration
 class UnitTestConfig {
@@ -39,8 +40,8 @@ class UnitTestConfig {
     @Bean
     fun prApprovedAction(
         orderRepository: com.example.statemachine.domain.repository.OrderRepository,
-        stateMachineService: com.example.statemachine.statemachine.service.StateMachineService,
-    ): PrApprovedAction = PrApprovedAction(orderRepository, stateMachineService)
+        jpaStateMachineRepository: JpaStateMachineRepository,
+    ): PrApprovedAction = PrApprovedAction(orderRepository, jpaStateMachineRepository)
 
     @Bean
     fun sendCoeAction(

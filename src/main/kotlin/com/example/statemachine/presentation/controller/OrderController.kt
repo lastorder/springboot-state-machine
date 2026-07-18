@@ -1,10 +1,10 @@
 package com.example.statemachine.presentation.controller
 
+import com.example.statemachine.application.service.OrderCommandService
 import com.example.statemachine.application.service.OrderService
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.presentation.dto.CreateOrderRequest
 import com.example.statemachine.presentation.dto.OrderResponse
-import com.example.statemachine.statemachine.service.StateMachineService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController
 @RequestMapping("/api/orders")
 class OrderController(
     private val orderService: OrderService,
-    private val stateMachineService: StateMachineService,
+    private val orderCommandService: OrderCommandService,
 ) {
     @PostMapping
     fun createOrder(
@@ -65,12 +65,12 @@ class OrderController(
         @RequestParam orderNo: String,
         @RequestParam event: OrderEvent,
     ): ResponseEntity<Map<String, Any>> {
-        val result = stateMachineService.sendEvent(orderNo, event)
-        return ResponseEntity.ok(
+        orderCommandService.submitOrderEvent(orderNo, event)
+        return ResponseEntity.accepted().body(
             mapOf(
                 "orderNo" to orderNo,
                 "event" to event.name,
-                "accepted" to result,
+                "status" to "submitted",
             ),
         )
     }

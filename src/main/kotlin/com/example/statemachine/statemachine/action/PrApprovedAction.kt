@@ -5,18 +5,17 @@ import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.model.Order
 import com.example.statemachine.domain.repository.OrderRepository
-import com.example.statemachine.statemachine.service.StateMachineService
 import org.slf4j.LoggerFactory
-import org.springframework.context.annotation.Lazy
 import org.springframework.statemachine.StateContext
 import org.springframework.statemachine.action.Action
+import org.springframework.statemachine.data.jpa.JpaStateMachineRepository
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 
 @Component
 class PrApprovedAction(
     private val orderRepository: OrderRepository,
-    @Lazy private val stateMachineService: StateMachineService,
+    private val jpaStateMachineRepository: JpaStateMachineRepository,
 ) : Action<OrderStatus, OrderEvent> {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -58,16 +57,15 @@ class PrApprovedAction(
             val existingOrder = orderRepository.findByOrderNo(orderNo)
 
             if (existingOrder != null) {
-                val existingStatus = stateMachineService.getCurrentStateByOrderNo(orderNo)
+                val currentStatus = getCurrentState(orderNo)
 
-                log.info("Order already exists: id=${existingOrder.id}, orderNo=$orderNo, currentStatus=$existingStatus")
+                log.info("Order already exists: id=${existingOrder.id}, orderNo=$orderNo, currentStatus=$currentStatus")
 
-                if (existingStatus != null && existingStatus != OrderStatus.INIT) {
-                    log.info("Order already processed, skipping: orderNo=$orderNo, status=$existingStatus")
+                if (currentStatus != null && currentStatus != OrderStatus.INIT) {
+                    log.info("Order already processed, skipping: orderNo=$orderNo, status=$currentStatus")
                     return
                 }
 
-                stateMachineService.initializeStateMachineByOrderNo(orderNo, OrderStatus.LOCAL_INITIALIZED)
                 log.info("Re-processed existing order: orderNo=$orderNo")
                 return
             }
@@ -84,12 +82,14 @@ class PrApprovedAction(
 
             val savedOrder = orderRepository.save(order)
             log.info("Order saved from PR_APPROVED: id=${savedOrder.id}, orderNo=${savedOrder.orderNo}")
-
-            stateMachineService.initializeStateMachineByOrderNo(orderNo, OrderStatus.LOCAL_INITIALIZED)
-            log.info("State machine initialized with orderNo: $orderNo")
         } catch (e: Exception) {
             log.error("Error in PrApprovedAction: ${e.message}", e)
         }
+    }
+
+    private fun getCurrentState(orderNo: String): OrderStatus? {
+        val entity = jpaStateMachineRepository.findById(orderNo).orElse(null)
+        return entity?.let { OrderStatus.valueOf(it.state) }
     }
 
     private fun extractAmount(value: Any?): BigDecimal? =
