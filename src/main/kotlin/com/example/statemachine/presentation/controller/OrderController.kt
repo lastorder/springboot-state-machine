@@ -42,6 +42,18 @@ class OrderController(
         }
     }
 
+    @GetMapping("/order-no/{orderNo}")
+    fun getOrderByOrderNo(
+        @PathVariable orderNo: String,
+    ): ResponseEntity<OrderResponse> {
+        val order = orderService.getOrderByOrderNo(orderNo)
+        return if (order != null) {
+            ResponseEntity.ok(order)
+        } else {
+            ResponseEntity.notFound().build()
+        }
+    }
+
     @GetMapping
     fun getAllOrders(): ResponseEntity<List<OrderResponse>> {
         val orders = orderService.getAllOrders()

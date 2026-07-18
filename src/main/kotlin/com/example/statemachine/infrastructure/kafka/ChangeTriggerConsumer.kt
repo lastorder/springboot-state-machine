@@ -1,11 +1,13 @@
 package com.example.statemachine.infrastructure.kafka
 
+import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.infrastructure.kafka.dto.BarrierPassEvent
 import com.example.statemachine.infrastructure.kafka.dto.ChangeTriggerEvent
 import com.example.statemachine.order.barrier.CdoaAcceptBarrier
 import com.example.statemachine.order.barrier.CdoaAcceptBarrierAggregate
 import com.example.statemachine.order.barrier.PurchaseRequestAcceptBarrier
 import com.example.statemachine.order.barrier.PurchaseRequestAcceptBarrierAggregate
+import com.example.statemachine.statemachine.service.StateMachineService
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.kafka.annotation.KafkaListener
@@ -15,6 +17,7 @@ import org.springframework.stereotype.Component
 class ChangeTriggerConsumer(
     private val purchaseRequestAcceptBarrierAggregate: PurchaseRequestAcceptBarrierAggregate,
     private val cdoaAcceptBarrierAggregate: CdoaAcceptBarrierAggregate,
+    private val stateMachineService: StateMachineService,
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -38,16 +41,23 @@ class ChangeTriggerConsumer(
                 "flowType=${event.flowType}, success=${event.success}",
         )
 
-        if (!event.success) {
-            log.warn("Barrier pass event indicates failure, skipping: orderNo=${event.orderNo}")
-            return
-        }
-
         when (event.flowType) {
-            PurchaseRequestAcceptBarrier.FLOW_TYPE ->
-                purchaseRequestAcceptBarrierAggregate.handleBarrierEvent(event.orderNo, event.barrierType)
-            CdoaAcceptBarrier.FLOW_TYPE ->
-                cdoaAcceptBarrierAggregate.handleBarrierEvent(event.orderNo, event.barrierType)
+            PurchaseRequestAcceptBarrier.FLOW_TYPE -> {
+                if (event.success) {
+                    purchaseRequestAcceptBarrierAggregate.handleBarrierEvent(event.orderNo, event.barrierType)
+                } else {
+                    log.warn("Barrier failed: orderNo=${event.orderNo}, barrierType=${event.barrierType}, sending FAILED event")
+                    stateMachineService.sendEvent(event.orderNo, OrderEvent.PURCHASE_REQUEST_ACCEPT_FAILED)
+                }
+            }
+            CdoaAcceptBarrier.FLOW_TYPE -> {
+                if (event.success) {
+                    cdoaAcceptBarrierAggregate.handleBarrierEvent(event.orderNo, event.barrierType)
+                } else {
+                    log.warn("Barrier failed: orderNo=${event.orderNo}, barrierType=${event.barrierType}, sending FAILED event")
+                    stateMachineService.sendEvent(event.orderNo, OrderEvent.CDOA_ACCEPT_FAILED)
+                }
+            }
             else -> log.warn("Unknown flowType: ${event.flowType}")
         }
     }

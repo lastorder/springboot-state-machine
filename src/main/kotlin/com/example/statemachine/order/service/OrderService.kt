@@ -36,6 +36,9 @@ class OrderService(
     fun getOrder(id: Long): OrderResponse? = orderRepository.findById(id)?.let { toResponse(it) }
 
     @Transactional(readOnly = true)
+    fun getOrderByOrderNo(orderNo: String): OrderResponse? = orderRepository.findByOrderNo(orderNo)?.let { toResponse(it) }
+
+    @Transactional(readOnly = true)
     fun getOrderEntity(id: Long): Order? = orderRepository.findById(id)
 
     @Transactional(readOnly = true)

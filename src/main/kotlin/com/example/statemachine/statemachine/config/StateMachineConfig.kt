@@ -4,6 +4,7 @@ import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.statemachine.action.BroadcastCdoaAcceptAction
 import com.example.statemachine.statemachine.action.BroadcastPurchaseRequestAcceptAction
+import com.example.statemachine.statemachine.action.BroadcastPurchaseRequestAcceptRetryAction
 import com.example.statemachine.statemachine.action.PrApprovedAction
 import com.example.statemachine.statemachine.action.SendCoeAction
 import com.example.statemachine.statemachine.action.SyncDealAction
@@ -20,6 +21,7 @@ class StateMachineConfig(
     private val sendCoeAction: SendCoeAction,
     private val syncDealAction: SyncDealAction,
     private val broadcastPurchaseRequestAcceptAction: BroadcastPurchaseRequestAcceptAction,
+    private val broadcastPurchaseRequestAcceptRetryAction: BroadcastPurchaseRequestAcceptRetryAction,
     private val broadcastCdoaAcceptAction: BroadcastCdoaAcceptAction,
 ) : StateMachineConfigurerAdapter<OrderStatus, OrderEvent>() {
     override fun configure(states: StateMachineStateConfigurer<OrderStatus, OrderEvent>) {
@@ -32,7 +34,7 @@ class StateMachineConfig(
             .end(OrderStatus.ORDER_INITIALIZE_FAILED)
             .state(OrderStatus.PURCHASE_REQUEST_ACCEPTING, broadcastPurchaseRequestAcceptAction, null)
             .state(OrderStatus.PURCHASE_REQUEST_ACCEPTED)
-            .end(OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED)
+            .state(OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED)
             .state(OrderStatus.CDOA_ACCEPTING, broadcastCdoaAcceptAction, null)
             .state(OrderStatus.CDOA_ACCEPTED)
             .end(OrderStatus.CDOA_ACCEPT_FAILED)
@@ -80,6 +82,12 @@ class StateMachineConfig(
             .source(OrderStatus.PURCHASE_REQUEST_ACCEPTING)
             .target(OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED)
             .event(OrderEvent.PURCHASE_REQUEST_ACCEPT_FAILED)
+            .and()
+            .withExternal()
+            .source(OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED)
+            .target(OrderStatus.PURCHASE_REQUEST_ACCEPTING)
+            .event(OrderEvent.PURCHASE_REQUEST_ACCEPT_RETRY)
+            .action(broadcastPurchaseRequestAcceptRetryAction)
             .and()
             .withExternal()
             .source(OrderStatus.PURCHASE_REQUEST_ACCEPTED)
