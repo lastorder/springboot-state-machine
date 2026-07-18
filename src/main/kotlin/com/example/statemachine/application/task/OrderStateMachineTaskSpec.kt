@@ -2,6 +2,7 @@ package com.example.statemachine.application.task
 
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
+import com.example.statemachine.statemachine.config.StateMachineListener
 import com.example.statemachine.task.spec.LockingTaskSpec
 import com.example.statemachine.task.spec.RetryStrategy
 import com.example.statemachine.task.spec.TaskContext
@@ -22,7 +23,7 @@ import java.time.Duration
 class OrderStateMachineTaskSpec(
     private val stateMachineFactory: StateMachineFactory<OrderStatus, OrderEvent>,
     private val jpaStateMachineRepository: JpaStateMachineRepository,
-    private val stateMachineListener: org.springframework.statemachine.listener.StateMachineListenerAdapter<OrderStatus, OrderEvent>,
+    private val stateMachineListener: StateMachineListener,
     lockProvider: LockProvider,
 ) : LockingTaskSpec<OrderEventPayload>(
         lockProvider = lockProvider,
@@ -61,26 +62,18 @@ class OrderStateMachineTaskSpec(
     fun sendEvent(
         orderNo: String,
         event: OrderEvent,
-    ): Boolean = sendEvent(orderNo, event, emptyMap())
-
-    fun sendEvent(
-        orderNo: String,
-        event: OrderEvent,
-        headers: Map<String, Any>,
+        headers: Map<String, Any> = emptyMap(),
     ): Boolean {
         val machineId = orderNo
-        log.info("Sending event: orderNo=$orderNo, event=$event, machineId=$machineId")
+        log.debug("Sending event: orderNo=$orderNo, event=$event")
 
         val stateMachine = stateMachineFactory.getStateMachine(machineId)
 
         return try {
             stateMachine.addStateListener(stateMachineListener)
+
             restoreStateMachine(stateMachine, machineId).block()
-
-            log.debug("Starting state machine before sending event")
             stateMachine.startReactively().block()
-
-            log.debug("State machine state after start: ${stateMachine.state.id}")
 
             val message =
                 MessageBuilder
@@ -89,12 +82,16 @@ class OrderStateMachineTaskSpec(
                     .apply { headers.forEach { (k, v) -> setHeader(k, v) } }
                     .build()
 
-            val result = sendEventReactive(stateMachine, message).block() ?: false
-            log.info("Event send result: orderNo=$orderNo, event=$event, accepted=$result, newState=${stateMachine.state.id}")
+            val result =
+                stateMachine
+                    .sendEvent(Mono.just(message))
+                    .next()
+                    .map { it.resultType.name == "ACCEPTED" }
+                    .onErrorReturn(false)
+                    .block() ?: false
 
             if (result) {
                 persistStateMachine(stateMachine, machineId)
-                log.debug("Persisted state machine: machineId=$machineId, state=${stateMachine.state.id}")
             }
 
             result
@@ -102,68 +99,33 @@ class OrderStateMachineTaskSpec(
             log.error("Error sending event: orderNo=$orderNo, event=$event", e)
             false
         } finally {
-            stopStateMachine(stateMachine).block()
+            stateMachine.stopReactively().block()
         }
     }
 
     fun getCurrentState(orderNo: String): OrderStatus? {
-        val machineId = orderNo
-        val stateMachine = stateMachineFactory.getStateMachine(machineId)
+        val stateMachine = stateMachineFactory.getStateMachine(orderNo)
 
         return try {
-            restoreStateMachine(stateMachine, machineId).block()
+            restoreStateMachine(stateMachine, orderNo).block()
             stateMachine.state.id
         } catch (e: Exception) {
             log.error("Error getting current state: orderNo=$orderNo", e)
             null
         } finally {
-            stopStateMachine(stateMachine).block()
+            stateMachine.stopReactively().block()
         }
     }
-
-    fun initializeStateMachine(
-        orderNo: String,
-        initialState: OrderStatus = OrderStatus.INIT,
-    ) {
-        val machineId = orderNo
-        val stateMachine = stateMachineFactory.getStateMachine(machineId)
-
-        try {
-            resetStateMachineContext(stateMachine, initialState, machineId).block()
-            persistStateMachine(stateMachine, machineId)
-            log.info("Initialized state machine: orderNo=$orderNo, initialState=$initialState")
-        } catch (e: Exception) {
-            log.error("Error initializing state machine: orderNo=$orderNo", e)
-        } finally {
-            stopStateMachine(stateMachine).block()
-        }
-    }
-
-    private fun sendEventReactive(
-        stateMachine: StateMachine<OrderStatus, OrderEvent>,
-        message: org.springframework.messaging.Message<OrderEvent>,
-    ): Mono<Boolean> =
-        stateMachine
-            .sendEvent(Mono.just(message))
-            .doOnNext { result ->
-                log.debug("Event result: ${result.resultType}, event=${message.payload}, state=${stateMachine.state.id}")
-            }.next()
-            .map { it.resultType == org.springframework.statemachine.StateMachineEventResult.ResultType.ACCEPTED }
-            .onErrorReturn(false)
-
-    private fun stopStateMachine(stateMachine: StateMachine<OrderStatus, OrderEvent>): Mono<Void> = stateMachine.stopReactively()
 
     private fun restoreStateMachine(
         stateMachine: StateMachine<OrderStatus, OrderEvent>,
         machineId: String,
     ): Mono<Void> {
-        val stateMachineEntity = jpaStateMachineRepository.findById(machineId)
-        return if (stateMachineEntity.isPresent) {
-            val entity = stateMachineEntity.get()
-            val state = OrderStatus.valueOf(entity.state)
+        val entity = jpaStateMachineRepository.findById(machineId)
+        return if (entity.isPresent) {
+            val state = OrderStatus.valueOf(entity.get().state)
             resetStateMachineContext(stateMachine, state, machineId)
         } else {
-            log.debug("No existing state machine found, initializing to INIT state: machineId=$machineId")
             resetStateMachineContext(stateMachine, OrderStatus.INIT, machineId)
         }
     }
@@ -182,9 +144,7 @@ class OrderStateMachineTaskSpec(
                 null,
                 machineId,
             )
-        return stateMachine.stateMachineAccessor
-            .withRegion()
-            .resetStateMachineReactively(context)
+        return stateMachine.stateMachineAccessor.withRegion().resetStateMachineReactively(context)
     }
 
     private fun persistStateMachine(
@@ -195,7 +155,6 @@ class OrderStateMachineTaskSpec(
         entity.machineId = machineId
         entity.state = stateMachine.state.id.name
         jpaStateMachineRepository.save(entity)
-        log.debug("Persisted state machine state: machineId=$machineId, state=${entity.state}")
     }
 
     companion object {

@@ -1,43 +1,25 @@
 package com.example.statemachine.statemachine.action
 
 import com.example.statemachine.application.barrier.PurchaseRequestAcceptBarrierAggregate
-import com.example.statemachine.domain.enums.OrderEvent
-import com.example.statemachine.domain.enums.OrderStatus
+import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.infrastructure.kafka.ChangeTriggerProducer
-import com.example.statemachine.infrastructure.persistence.entity.OrderJpaEntity
 import com.example.statemachine.infrastructure.persistence.repository.OrderJpaRepository
-import org.slf4j.LoggerFactory
-import org.springframework.statemachine.StateContext
-import org.springframework.statemachine.action.Action
 import org.springframework.stereotype.Component
 
 @Component
 class BroadcastPurchaseRequestAcceptRetryAction(
-    private val changeTriggerProducer: ChangeTriggerProducer,
-    private val orderJpaRepository: OrderJpaRepository,
-    private val purchaseRequestAcceptBarrierAggregate: PurchaseRequestAcceptBarrierAggregate,
-) : Action<OrderStatus, OrderEvent> {
-    private val log = LoggerFactory.getLogger(javaClass)
+    changeTriggerProducer: ChangeTriggerProducer,
+    orderJpaRepository: OrderJpaRepository,
+    purchaseRequestAcceptBarrierAggregate: PurchaseRequestAcceptBarrierAggregate,
+) : AbstractBroadcastAction(orderJpaRepository, purchaseRequestAcceptBarrierAggregate) {
+    private val producer = changeTriggerProducer
 
-    override fun execute(context: StateContext<OrderStatus, OrderEvent>) {
-        val orderNo = OrderActionUtils.extractOrderNo(context)
+    override fun actionName(): String = "BroadcastPurchaseRequestAcceptRetry"
 
-        if (orderNo.isNullOrBlank()) {
-            log.error("Cannot determine orderNo from context")
-            return
-        }
-
-        val order: OrderJpaEntity =
-            orderJpaRepository.findByOrderNo(orderNo)
-                ?: run {
-                    log.error("Order not found: orderNo=$orderNo")
-                    return
-                }
-
-        log.info("Re-initializing barrier for PURCHASE_REQUEST_ACCEPT_RETRY: orderNo=$orderNo, market=${order.market}")
-        purchaseRequestAcceptBarrierAggregate.initialize(orderNo, order.market)
-
-        log.info("Broadcasting PURCHASE_REQUEST_ACCEPT_RETRY event to external systems: orderNo=$orderNo, market=${order.market}")
-        changeTriggerProducer.sendPurchaseRequestAccept(orderNo, order.market)
+    override fun broadcast(
+        orderNo: String,
+        market: Market,
+    ) {
+        producer.sendPurchaseRequestAccept(orderNo, market)
     }
 }

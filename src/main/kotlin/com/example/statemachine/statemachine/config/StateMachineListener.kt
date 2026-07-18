@@ -36,7 +36,7 @@ class StateMachineListener(
         val orderNo = stateMachine.id
         val finalState = stateMachine.state?.id
 
-        log.info("State machine stopped: orderNo=$orderNo, finalState=$finalState")
+        log.debug("State machine stopped: orderNo=$orderNo, finalState=$finalState")
 
         if (!orderNo.isNullOrBlank() && finalState != null) {
             syncOrderStatus(orderNo, finalState)
@@ -54,27 +54,11 @@ class StateMachineListener(
         log.error("State machine error", exception)
     }
 
-    override fun extendedStateChanged(
-        key: Any?,
-        value: Any?,
-    ) {
-        log.debug("Extended state changed: $key = $value")
-    }
-
-    override fun stateEntered(state: State<OrderStatus, OrderEvent>) {
-        log.debug("State entered: ${state.id}")
-    }
-
-    override fun stateExited(state: State<OrderStatus, OrderEvent>) {
-        log.debug("State exited: ${state.id}")
-    }
-
-    protected fun syncOrderStatus(
+    private fun syncOrderStatus(
         orderNo: String,
         newStatus: OrderStatus,
     ) {
         if (orderNo.isBlank()) {
-            log.debug("Skipping status sync for empty orderNo")
             return
         }
 
@@ -88,7 +72,7 @@ class StateMachineListener(
                 }
             }
         } catch (e: Exception) {
-            log.error("Status sync failed but state machine continues: orderNo=$orderNo, status=$newStatus", e)
+            log.error("Status sync failed: orderNo=$orderNo, status=$newStatus", e)
         }
     }
 }

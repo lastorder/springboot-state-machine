@@ -11,6 +11,7 @@ import com.example.statemachine.statemachine.action.SyncDealAction
 import org.springframework.context.annotation.Configuration
 import org.springframework.statemachine.config.EnableStateMachineFactory
 import org.springframework.statemachine.config.StateMachineConfigurerAdapter
+import org.springframework.statemachine.config.builders.StateMachineConfigurationConfigurer
 import org.springframework.statemachine.config.builders.StateMachineStateConfigurer
 import org.springframework.statemachine.config.builders.StateMachineTransitionConfigurer
 
@@ -23,7 +24,12 @@ class StateMachineConfig(
     private val broadcastPurchaseRequestAcceptAction: BroadcastPurchaseRequestAcceptAction,
     private val broadcastPurchaseRequestAcceptRetryAction: BroadcastPurchaseRequestAcceptRetryAction,
     private val broadcastCdoaAcceptAction: BroadcastCdoaAcceptAction,
+    private val stateMachineListener: StateMachineListener,
 ) : StateMachineConfigurerAdapter<OrderStatus, OrderEvent>() {
+    override fun configure(config: StateMachineConfigurationConfigurer<OrderStatus, OrderEvent>) {
+        config.withConfiguration().listener(stateMachineListener)
+    }
+
     override fun configure(states: StateMachineStateConfigurer<OrderStatus, OrderEvent>) {
         states
             .withStates()
