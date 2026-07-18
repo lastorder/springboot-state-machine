@@ -10,12 +10,12 @@ import org.springframework.statemachine.listener.StateMachineListenerAdapter
 import org.springframework.statemachine.state.State
 import org.springframework.statemachine.transition.Transition
 import org.springframework.stereotype.Component
-import org.springframework.transaction.annotation.Propagation
-import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.support.TransactionTemplate
 
 @Component
 class StateMachineListener(
     private val orderJpaRepository: OrderJpaRepository,
+    private val transactionTemplate: TransactionTemplate,
 ) : StateMachineListenerAdapter<OrderStatus, OrderEvent>() {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -69,7 +69,6 @@ class StateMachineListener(
         log.debug("State exited: ${state.id}")
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     protected fun syncOrderStatus(
         orderNo: String,
         newStatus: OrderStatus,
@@ -80,11 +79,13 @@ class StateMachineListener(
         }
 
         try {
-            val updated = orderJpaRepository.updateStatusByOrderNo(orderNo, newStatus)
-            if (updated > 0) {
-                log.info("Synced order status: orderNo=$orderNo, status=$newStatus")
-            } else {
-                log.warn("Order not found for status sync: orderNo=$orderNo")
+            transactionTemplate.executeWithoutResult {
+                val updated = orderJpaRepository.updateStatusByOrderNo(orderNo, newStatus)
+                if (updated > 0) {
+                    log.info("Synced order status: orderNo=$orderNo, status=$newStatus")
+                } else {
+                    log.warn("Order not found for status sync: orderNo=$orderNo")
+                }
             }
         } catch (e: Exception) {
             log.error("Status sync failed but state machine continues: orderNo=$orderNo, status=$newStatus", e)
