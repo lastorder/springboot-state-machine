@@ -1,4 +1,4 @@
-package com.example.statemachine.order.task
+package com.example.statemachine.application.task
 
 import com.example.statemachine.statemachine.service.StateMachineService
 import com.example.statemachine.task.spec.LockingTaskSpec

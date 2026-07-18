@@ -1,7 +1,7 @@
 package com.example.statemachine.presentation.controller
 
+import com.example.statemachine.application.service.OrderService
 import com.example.statemachine.domain.enums.OrderEvent
-import com.example.statemachine.order.service.OrderService
 import com.example.statemachine.presentation.dto.CreateOrderRequest
 import com.example.statemachine.presentation.dto.OrderResponse
 import com.example.statemachine.statemachine.service.StateMachineService

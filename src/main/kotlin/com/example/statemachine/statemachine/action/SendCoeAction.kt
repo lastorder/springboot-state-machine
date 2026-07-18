@@ -1,9 +1,9 @@
 package com.example.statemachine.statemachine.action
 
+import com.example.statemachine.application.barrier.OrderInitBarrierAggregate
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.infrastructure.kafka.CoeProducer
-import com.example.statemachine.order.barrier.OrderInitBarrierAggregate
 import org.slf4j.LoggerFactory
 import org.springframework.statemachine.StateContext
 import org.springframework.statemachine.action.Action

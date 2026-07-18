@@ -1,7 +1,6 @@
-package com.example.statemachine.order.barrier
+package com.example.statemachine.application.barrier
 
 import com.example.statemachine.barrieraggregate.BarrierAggregateRepository
-import com.example.statemachine.barrieraggregate.MarketAwareBarrierAggregate
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.statemachine.service.StateMachineService
 import org.springframework.context.annotation.Lazy

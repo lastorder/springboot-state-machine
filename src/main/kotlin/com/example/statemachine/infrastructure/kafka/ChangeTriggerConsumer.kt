@@ -1,12 +1,12 @@
 package com.example.statemachine.infrastructure.kafka
 
+import com.example.statemachine.application.barrier.CdoaAcceptBarrier
+import com.example.statemachine.application.barrier.CdoaAcceptBarrierAggregate
+import com.example.statemachine.application.barrier.PurchaseRequestAcceptBarrier
+import com.example.statemachine.application.barrier.PurchaseRequestAcceptBarrierAggregate
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.infrastructure.kafka.dto.BarrierPassEvent
 import com.example.statemachine.infrastructure.kafka.dto.ChangeTriggerEvent
-import com.example.statemachine.order.barrier.CdoaAcceptBarrier
-import com.example.statemachine.order.barrier.CdoaAcceptBarrierAggregate
-import com.example.statemachine.order.barrier.PurchaseRequestAcceptBarrier
-import com.example.statemachine.order.barrier.PurchaseRequestAcceptBarrierAggregate
 import com.example.statemachine.statemachine.service.StateMachineService
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory

@@ -1,4 +1,4 @@
-package com.example.statemachine.order.barrier
+package com.example.statemachine.application.barrier
 
 import com.example.statemachine.domain.enums.Market
 

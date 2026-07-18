@@ -1,8 +1,8 @@
-package com.example.statemachine.order.service
+package com.example.statemachine.application.service
 
+import com.example.statemachine.application.task.OrderEventPayload
+import com.example.statemachine.application.task.OrderStateMachineTaskSpec
 import com.example.statemachine.domain.enums.OrderEvent
-import com.example.statemachine.order.task.OrderEventPayload
-import com.example.statemachine.order.task.OrderStateMachineTaskSpec
 import com.example.statemachine.task.scheduler.TaskScheduler
 import org.springframework.stereotype.Service
 import java.util.UUID

@@ -1,11 +1,11 @@
 package com.example.statemachine.infrastructure.kafka
 
+import com.example.statemachine.application.barrier.OrderInitBarrier
+import com.example.statemachine.application.barrier.OrderInitBarrierAggregate
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.infrastructure.kafka.dto.DomEvent
 import com.example.statemachine.infrastructure.kafka.dto.PrApprovedEvent
 import com.example.statemachine.infrastructure.kafka.dto.VomEvent
-import com.example.statemachine.order.barrier.OrderInitBarrier
-import com.example.statemachine.order.barrier.OrderInitBarrierAggregate
 import com.example.statemachine.statemachine.service.StateMachineService
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory

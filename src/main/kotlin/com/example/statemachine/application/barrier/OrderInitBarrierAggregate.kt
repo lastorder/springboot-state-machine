@@ -1,18 +1,24 @@
-package com.example.statemachine.order.barrier
+package com.example.statemachine.application.barrier
 
+import com.example.statemachine.barrieraggregate.BarrierAggregate
 import com.example.statemachine.barrieraggregate.BarrierAggregateRepository
-import com.example.statemachine.barrieraggregate.MarketAwareBarrierAggregate
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.statemachine.service.StateMachineService
 import org.springframework.context.annotation.Lazy
 import org.springframework.stereotype.Component
 
 @Component
-class CdoaAcceptBarrierAggregate(
+class OrderInitBarrierAggregate(
     repository: BarrierAggregateRepository,
     @Lazy private val stateMachineService: StateMachineService,
-) : MarketAwareBarrierAggregate(repository, CdoaAcceptBarrier) {
+) : BarrierAggregate(repository) {
+    override val requiredBarriers: Set<String> =
+        setOf(
+            OrderInitBarrier.VOM,
+            OrderInitBarrier.DOM,
+        )
+
     override fun onAllBarriersPassed(aggregateKey: String) {
-        stateMachineService.sendEvent(aggregateKey, OrderEvent.CDOA_ACCEPT_SUCCESS)
+        stateMachineService.sendEvent(aggregateKey, OrderEvent.VOM)
     }
 }

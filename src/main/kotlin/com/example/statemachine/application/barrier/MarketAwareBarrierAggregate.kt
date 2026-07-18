@@ -1,7 +1,8 @@
-package com.example.statemachine.barrieraggregate
+package com.example.statemachine.application.barrier
 
+import com.example.statemachine.barrieraggregate.BarrierAggregate
+import com.example.statemachine.barrieraggregate.BarrierAggregateRepository
 import com.example.statemachine.domain.enums.Market
-import com.example.statemachine.order.barrier.MarketBarrierProvider
 
 abstract class MarketAwareBarrierAggregate(
     repository: BarrierAggregateRepository,

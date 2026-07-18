@@ -1,4 +1,4 @@
-package com.example.statemachine.order.service
+package com.example.statemachine.application.service
 
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.model.Order

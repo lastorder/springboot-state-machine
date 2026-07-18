@@ -1,10 +1,10 @@
 package com.example.statemachine.service
 
+import com.example.statemachine.application.service.OrderService
 import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.model.Order
 import com.example.statemachine.domain.repository.OrderRepository
-import com.example.statemachine.order.service.OrderService
 import com.example.statemachine.presentation.dto.CreateOrderRequest
 import io.mockk.every
 import io.mockk.mockk

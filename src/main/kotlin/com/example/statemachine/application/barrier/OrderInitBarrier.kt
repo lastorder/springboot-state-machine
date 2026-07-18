@@ -1,4 +1,4 @@
-package com.example.statemachine.order.barrier
+package com.example.statemachine.application.barrier
 
 object OrderInitBarrier {
     const val VOM = "VOM"

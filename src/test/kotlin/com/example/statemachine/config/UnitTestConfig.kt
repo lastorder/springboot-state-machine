@@ -1,10 +1,10 @@
 package com.example.statemachine.config
 
+import com.example.statemachine.application.barrier.OrderInitBarrierAggregate
 import com.example.statemachine.barrieraggregate.BarrierAggregateRepository
 import com.example.statemachine.infrastructure.kafka.CoeProducer
 import com.example.statemachine.infrastructure.kafka.OrderEventProducer
 import com.example.statemachine.infrastructure.rest.DealClient
-import com.example.statemachine.order.barrier.OrderInitBarrierAggregate
 import com.example.statemachine.statemachine.action.PrApprovedAction
 import com.example.statemachine.statemachine.action.SendCoeAction
 import com.example.statemachine.statemachine.action.SyncDealAction

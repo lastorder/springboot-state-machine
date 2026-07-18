@@ -1,4 +1,4 @@
-package com.example.statemachine.order.barrier
+package com.example.statemachine.application.barrier
 
 object PurchaseRequestAcceptBarrier : MarketBarrierProvider {
     const val FLOW_TYPE = "PR_ACCEPT"
