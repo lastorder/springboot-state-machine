@@ -156,37 +156,4 @@ class BarrierAggregateTest {
         assertTrue(result!!.passedBarriers.contains("BARRIER_A"))
         verify(inverse = true) { repository.save(any()) }
     }
-
-    @Test
-    @DisplayName("Should get summary")
-    fun testGetSummary() {
-        val record =
-            BarrierAggregateRecord(
-                id = 1L,
-                aggregateType = barrierAggregate.aggregateType,
-                aggregateKey = "KEY-001",
-                requiredBarriers = setOf("BARRIER_A", "BARRIER_B"),
-                passedBarriers = setOf("BARRIER_A"),
-                initializedAt = Instant.now(),
-            )
-
-        every { repository.findByAggregateTypeAndAggregateKey(any(), "KEY-001") } returns record
-
-        val result = barrierAggregate.getSummary("KEY-001")
-
-        assertNotNull(result)
-        assertEquals(setOf("BARRIER_A"), result!!.passedBarriers)
-        assertEquals(setOf("BARRIER_B"), result.pendingBarriers)
-        assertFalse(result.isAllBarriersPassed)
-    }
-
-    @Test
-    @DisplayName("Should delete barrier aggregate")
-    fun testDelete() {
-        every { repository.deleteByAggregateTypeAndAggregateKey(any(), "KEY-001") } returns Unit
-
-        barrierAggregate.delete("KEY-001")
-
-        verify { repository.deleteByAggregateTypeAndAggregateKey(any(), "KEY-001") }
-    }
 }

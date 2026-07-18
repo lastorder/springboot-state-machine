@@ -8,7 +8,6 @@ import com.example.statemachine.domain.repository.OrderRepository
 import com.example.statemachine.presentation.dto.CreateOrderRequest
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -121,71 +120,5 @@ class OrderServiceTest {
         val result = orderService.getAllOrders()
 
         assertEquals(2, result.size)
-    }
-
-    @Test
-    @DisplayName("Should update order status")
-    fun testUpdateOrderStatus() {
-        val order =
-            Order(
-                id = 1L,
-                orderNo = "ORD-001",
-                status = OrderStatus.INIT,
-                market = Market.DE,
-            )
-        every { orderRepository.findById(1L) } returns order
-        every { orderRepository.save(any()) } returns order
-
-        val result = orderService.updateOrderStatus(1L, OrderStatus.LOCAL_INITIALIZED)
-
-        assertEquals(true, result)
-        verify { orderRepository.save(any()) }
-    }
-
-    @Test
-    @DisplayName("Should return false when updating non-existent order")
-    fun testUpdateOrderStatusNotFound() {
-        every { orderRepository.findById(999L) } returns null
-
-        val result = orderService.updateOrderStatus(999L, OrderStatus.LOCAL_INITIALIZED)
-
-        assertEquals(false, result)
-    }
-
-    @Test
-    @DisplayName("Should get order entity")
-    fun testGetOrderEntity() {
-        val order =
-            Order(
-                id = 1L,
-                orderNo = "ORD-001",
-                status = OrderStatus.INIT,
-                market = Market.DE,
-            )
-        every { orderRepository.findById(1L) } returns order
-
-        val result = orderService.getOrderEntity(1L)
-
-        assertNotNull(result)
-        assertEquals(1L, result!!.id)
-        assertEquals(Market.DE, result.market)
-    }
-
-    @Test
-    @DisplayName("Should save order")
-    fun testSaveOrder() {
-        val order =
-            Order(
-                id = 1L,
-                orderNo = "ORD-001",
-                status = OrderStatus.INIT,
-                market = Market.DE,
-            )
-        every { orderRepository.save(order) } returns order
-
-        val result = orderService.saveOrder(order)
-
-        assertNotNull(result)
-        verify { orderRepository.save(order) }
     }
 }

@@ -103,20 +103,6 @@ class OrderStateMachineTaskSpec(
         }
     }
 
-    fun getCurrentState(orderNo: String): OrderStatus? {
-        val stateMachine = stateMachineFactory.getStateMachine(orderNo)
-
-        return try {
-            restoreStateMachine(stateMachine, orderNo).block()
-            stateMachine.state.id
-        } catch (e: Exception) {
-            log.error("Error getting current state: orderNo=$orderNo", e)
-            null
-        } finally {
-            stateMachine.stopReactively().block()
-        }
-    }
-
     private fun restoreStateMachine(
         stateMachine: StateMachine<OrderStatus, OrderEvent>,
         machineId: String,

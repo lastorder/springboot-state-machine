@@ -100,12 +100,4 @@ abstract class BarrierAggregate(
     }
 
     protected abstract fun onAllBarriersPassed(aggregateKey: String)
-
-    fun getSummary(aggregateKey: String): BarrierAggregateRecord? =
-        repository.findByAggregateTypeAndAggregateKey(aggregateType, aggregateKey)
-
-    fun delete(aggregateKey: String) {
-        repository.deleteByAggregateTypeAndAggregateKey(aggregateType, aggregateKey)
-        log.info("Deleted barrier aggregate: key=$aggregateKey")
-    }
 }

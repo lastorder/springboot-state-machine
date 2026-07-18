@@ -1,6 +1,5 @@
 package com.example.statemachine.application.service
 
-import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.model.Order
 import com.example.statemachine.domain.repository.OrderRepository
 import com.example.statemachine.presentation.dto.CreateOrderRequest
@@ -39,25 +38,7 @@ class OrderService(
     fun getOrderByOrderNo(orderNo: String): OrderResponse? = orderRepository.findByOrderNo(orderNo)?.let { toResponse(it) }
 
     @Transactional(readOnly = true)
-    fun getOrderEntity(id: Long): Order? = orderRepository.findById(id)
-
-    @Transactional(readOnly = true)
     fun getAllOrders(): List<OrderResponse> = orderRepository.findAll().map { toResponse(it) }
-
-    @Transactional
-    fun updateOrderStatus(
-        id: Long,
-        newStatus: OrderStatus,
-    ): Boolean {
-        val order = orderRepository.findById(id) ?: return false
-        order.updateStatus(newStatus)
-        orderRepository.save(order)
-        log.info("Order status updated: id=$id, newStatus=$newStatus")
-        return true
-    }
-
-    @Transactional
-    fun saveOrder(order: Order): Order = orderRepository.save(order)
 
     private fun toResponse(order: Order): OrderResponse {
         val id = order.id ?: throw IllegalStateException("Order ID must not be null when converting to response")
