@@ -5,7 +5,6 @@ import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.statemachine.action.PrApprovedAction
 import com.example.statemachine.statemachine.action.SendCoeAction
 import com.example.statemachine.statemachine.action.SyncDealAction
-import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Configuration
 import org.springframework.statemachine.config.EnableStateMachineFactory
 import org.springframework.statemachine.config.StateMachineConfigurerAdapter
@@ -19,16 +18,12 @@ class StateMachineConfig(
     private val sendCoeAction: SendCoeAction,
     private val syncDealAction: SyncDealAction,
 ) : StateMachineConfigurerAdapter<OrderStatus, OrderEvent>() {
-    private val log = LoggerFactory.getLogger(javaClass)
-
     override fun configure(states: StateMachineStateConfigurer<OrderStatus, OrderEvent>) {
         states
             .withStates()
             .initial(OrderStatus.INIT)
             .state(OrderStatus.LOCAL_INITIALIZED)
             .state(OrderStatus.FACTORY_ORDER_SUBMITTED, syncDealAction, null)
-            .state(OrderStatus.FIRST_VOM_RECEIVED)
-            .state(OrderStatus.FIRST_DOM_RECEIVED)
             .state(OrderStatus.ORDER_INITIALIZE_SUCCEED)
             .end(OrderStatus.ORDER_INITIALIZE_FAILED)
     }
@@ -48,36 +43,16 @@ class StateMachineConfig(
             .and()
             .withExternal()
             .source(OrderStatus.FACTORY_ORDER_SUBMITTED)
-            .target(OrderStatus.FIRST_VOM_RECEIVED)
-            .event(OrderEvent.VOM)
-            .and()
-            .withExternal()
-            .source(OrderStatus.FACTORY_ORDER_SUBMITTED)
-            .target(OrderStatus.FIRST_DOM_RECEIVED)
-            .event(OrderEvent.DOM)
-            .and()
-            .withExternal()
-            .source(OrderStatus.FIRST_VOM_RECEIVED)
-            .target(OrderStatus.ORDER_INITIALIZE_SUCCEED)
-            .event(OrderEvent.DOM)
-            .and()
-            .withExternal()
-            .source(OrderStatus.FIRST_DOM_RECEIVED)
             .target(OrderStatus.ORDER_INITIALIZE_SUCCEED)
             .event(OrderEvent.VOM)
             .and()
             .withExternal()
             .source(OrderStatus.FACTORY_ORDER_SUBMITTED)
-            .target(OrderStatus.ORDER_INITIALIZE_FAILED)
-            .event(OrderEvent.VOM_FAILED)
+            .target(OrderStatus.ORDER_INITIALIZE_SUCCEED)
+            .event(OrderEvent.DOM)
             .and()
             .withExternal()
-            .source(OrderStatus.FIRST_VOM_RECEIVED)
-            .target(OrderStatus.ORDER_INITIALIZE_FAILED)
-            .event(OrderEvent.VOM_FAILED)
-            .and()
-            .withExternal()
-            .source(OrderStatus.FIRST_DOM_RECEIVED)
+            .source(OrderStatus.FACTORY_ORDER_SUBMITTED)
             .target(OrderStatus.ORDER_INITIALIZE_FAILED)
             .event(OrderEvent.VOM_FAILED)
     }

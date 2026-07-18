@@ -4,6 +4,7 @@ plugins {
     kotlin("jvm") version "2.1.21"
     kotlin("plugin.spring") version "2.1.21"
     kotlin("plugin.jpa") version "2.1.21"
+    kotlin("plugin.serialization") version "2.1.21"
     id("jacoco")
     id("org.jlleitschuh.gradle.ktlint") version "12.3.0"
 }
@@ -68,6 +69,7 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
 
     runtimeOnly("org.postgresql:postgresql")
 

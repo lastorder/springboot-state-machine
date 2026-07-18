@@ -63,7 +63,7 @@ class StateMachineServiceTest {
         every { stateMachine.stopReactively() } returns Mono.empty()
         every { jpaStateMachineRepository.save(any()) } returns JpaRepositoryStateMachine()
 
-        val result = stateMachineService.sendEventByOrderNo(orderNo, event)
+        val result = stateMachineService.sendEvent(orderNo, event)
 
         verify { stateMachineFactory.getStateMachine(orderNo) }
         assertEquals(true, result)
@@ -71,7 +71,7 @@ class StateMachineServiceTest {
 
     @Test
     @DisplayName("Should send event with headers successfully")
-    fun testSendEventByOrderNoWithHeaders() {
+    fun testSendEventWithHeaders() {
         val orderNo = "ORD-001"
         val event = OrderEvent.PR_APPROVED
         val headers = mapOf<String, Any>("productId" to "PROD-123")
@@ -88,7 +88,7 @@ class StateMachineServiceTest {
         every { stateMachine.stopReactively() } returns Mono.empty()
         every { jpaStateMachineRepository.save(any()) } returns JpaRepositoryStateMachine()
 
-        val result = stateMachineService.sendEventByOrderNo(orderNo, event, headers)
+        val result = stateMachineService.sendEvent(orderNo, event, headers)
 
         verify { stateMachineFactory.getStateMachine(orderNo) }
         assertEquals(true, result)
@@ -178,21 +178,21 @@ class StateMachineServiceTest {
         every { stateMachine.sendEvent(any<Mono<Message<OrderEvent>>>()) } returns Flux.just(eventResult)
         every { stateMachine.stopReactively() } returns Mono.empty()
 
-        val result = stateMachineService.sendEventByOrderNo(orderNo, event)
+        val result = stateMachineService.sendEvent(orderNo, event)
 
         assertEquals(false, result)
     }
 
     @Test
     @DisplayName("Should return false on exception")
-    fun testSendEventByOrderNoException() {
+    fun testSendEventException() {
         val orderNo = "ORD-001"
         val event = OrderEvent.DOM
 
         every { stateMachineFactory.getStateMachine(orderNo) } returns stateMachine
         every { jpaStateMachineRepository.findById(orderNo) } throws RuntimeException("DB error")
 
-        val result = stateMachineService.sendEventByOrderNo(orderNo, event)
+        val result = stateMachineService.sendEvent(orderNo, event)
 
         assertEquals(false, result)
     }

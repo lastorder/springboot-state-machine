@@ -1,8 +1,10 @@
 package com.example.statemachine.config
 
+import com.example.statemachine.barrieraggregate.BarrierAggregateRepository
 import com.example.statemachine.infrastructure.kafka.CoeProducer
 import com.example.statemachine.infrastructure.kafka.OrderEventProducer
 import com.example.statemachine.infrastructure.rest.DealClient
+import com.example.statemachine.order.barrier.OrderInitBarrierAggregate
 import com.example.statemachine.statemachine.action.PrApprovedAction
 import com.example.statemachine.statemachine.action.SendCoeAction
 import com.example.statemachine.statemachine.action.SyncDealAction
@@ -31,13 +33,20 @@ class UnitTestConfig {
     fun dealClient(): DealClient = mockk(relaxed = true)
 
     @Bean
+    @Primary
+    fun barrierAggregateRepository(): BarrierAggregateRepository = mockk(relaxed = true)
+
+    @Bean
     fun prApprovedAction(
         orderRepository: com.example.statemachine.domain.repository.OrderRepository,
         stateMachineService: com.example.statemachine.statemachine.service.StateMachineService,
     ): PrApprovedAction = PrApprovedAction(orderRepository, stateMachineService)
 
     @Bean
-    fun sendCoeAction(coeProducer: CoeProducer): SendCoeAction = SendCoeAction(coeProducer)
+    fun sendCoeAction(
+        coeProducer: CoeProducer,
+        orderInitBarrierAggregate: OrderInitBarrierAggregate,
+    ): SendCoeAction = SendCoeAction(coeProducer, orderInitBarrierAggregate)
 
     @Bean
     fun syncDealAction(dealClient: DealClient): SyncDealAction = SyncDealAction(dealClient)

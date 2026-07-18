@@ -1,11 +1,11 @@
 # Spring Boot State Machine Demo
 
-一个基于 Spring State Machine 的订单初始化系统演示项目，展示了 Fork/Join 状态机模式与事件驱动架构。
+一个基于 Spring State Machine 的订单初始化系统演示项目，展示了 Barrier Aggregate 模式与事件驱动架构。
 
 ## 技术栈
 
-- **Kotlin** 1.9.x
-- **Spring Boot** 3.2.x
+- **Kotlin** 2.1.x
+- **Spring Boot** 3.5.x
 - **Spring State Machine** - 状态机框架
 - **PostgreSQL** - 数据持久化
 - **Apache Kafka** - 事件驱动
@@ -24,15 +24,14 @@
 │    ▼ PR_APPROVED (Kafka: pr.approved)                               │
 │  LOCAL_INITIALIZED                                                   │
 │    │                                                                 │
-│    ▼ 发送 COE 到 Kafka                                               │
+│    ▼ 发送 COE 到 Kafka + 初始化屏障 (VOM + DOM)                       │
 │  FACTORY_ORDER_SUBMITTED                                             │
 │    │                                                                 │
-│    ├─────────── Fork (并行等待) ───────────┐                         │
-│    │                                        │                        │
-│    ▼                                        ▼                        │
-│  FIRST_VOM_RECEIVED                   FIRST_DOM_RECEIVED            │
-│    │                                        │                        │
-│    └──────────── Join (汇合) ───────────────┘                        │
+│    ├─────── Barrier Aggregate (等待 VOM 和 DOM) ───────┐            │
+│    │                                                     │            │
+│    │   VOM 收到 → 屏障传递       DOM 收到 → 屏障传递      │            │
+│    │                                                     │            │
+│    └─────────── 所有屏障通过 ────────────────────────────┘            │
 │                     │                                                │
 │                     ▼                                                │
 │           ORDER_INITIALIZE_SUCCEED                                   │
@@ -161,9 +160,8 @@ curl http://localhost:8080/api/orders/1
 
 预期状态流转:
 - `INIT` → `LOCAL_INITIALIZED` (收到 PR_APPROVED)
-- `LOCAL_INITIALIZED` → `FACTORY_ORDER_SUBMITTED` (发送 COE + 同步 Deal)
-- `FACTORY_ORDER_SUBMITTED` → `FIRST_VOM_RECEIVED` / `FIRST_DOM_RECEIVED` (收到 VOM/DOM)
-- `FIRST_VOM_RECEIVED` + `FIRST_DOM_RECEIVED` → `ORDER_INITIALIZE_SUCCEED` (Join 完成)
+- `LOCAL_INITIALIZED` → `FACTORY_ORDER_SUBMITTED` (发送 COE + 同步 Deal + 初始化屏障)
+- `FACTORY_ORDER_SUBMITTED` → `ORDER_INITIALIZE_SUCCEED` (VOM 和 DOM 都收到，屏障全部通过)
 
 ### 查看所有订单
 
@@ -176,8 +174,8 @@ curl http://localhost:8080/api/orders
 | 事件 | 来源 | 状态转换 |
 |------|------|----------|
 | PR_APPROVED | Kafka `pr.approved` | INIT → LOCAL_INITIALIZED |
-| VOM | Kafka `factory.vom` | FACTORY_ORDER_SUBMITTED → FIRST_VOM_RECEIVED |
-| DOM | Kafka `factory.dom` | FACTORY_ORDER_SUBMITTED → FIRST_DOM_RECEIVED |
+| VOM | Kafka `factory.vom` | 通过屏障，全部通过后 FACTORY_ORDER_SUBMITTED → ORDER_INITIALIZE_SUCCEED |
+| DOM | Kafka `factory.dom` | 通过屏障，全部通过后 FACTORY_ORDER_SUBMITTED → ORDER_INITIALIZE_SUCCEED |
 | VOM_FAILED | Kafka `factory.vom.failed` | * → ORDER_INITIALIZE_FAILED |
 
 ## Kafka Topics
@@ -216,6 +214,57 @@ src/
 ├── test/kotlin/                # 单元测试 (MockK, 无 Spring Context)
 └── integrationTest/kotlin/     # 集成测试 (Testcontainers)
 ```
+
+## Barrier Aggregate 模式
+
+本项目使用 **Barrier Aggregate** 模式来处理并行事件等待，采用单表 JSONB 设计：
+
+### 数据结构
+
+```sql
+CREATE TABLE barrier_aggregate (
+    id BIGSERIAL PRIMARY KEY,
+    aggregate_type VARCHAR(500) NOT NULL,      -- 屏障聚合类型（类全名）
+    aggregate_key VARCHAR(255) NOT NULL,       -- 业务键（如 orderNo）
+    required_barriers JSONB NOT NULL,          -- 必需屏障 ["VOM", "DOM"]
+    passed_barriers JSONB NOT NULL DEFAULT '[]', -- 已通过屏障 ["VOM"]
+    initialized_at TIMESTAMP NOT NULL,         -- 初始化时间（可计算等待时长）
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,         -- 乐观锁版本号
+    CONSTRAINT uk_barrier_aggregate UNIQUE(aggregate_type, aggregate_key)
+);
+```
+
+### API 使用
+
+```kotlin
+// 初始化屏障（幂等，已存在则重置）
+orderInitBarrierAggregate.initialize(orderNo)
+
+// 处理屏障事件（自动追加到 passedBarriers，全过时触发回调）
+orderInitBarrierAggregate.handleBarrierEvent(orderNo, "VOM")
+
+// 查询状态
+val summary = orderInitBarrierAggregate.getSummary(orderNo)
+println("等待时长: ${summary?.waitingDuration}")
+```
+
+### 优势
+
+1. **单行设计** - 每个聚合对象一行记录，直观清晰
+2. **JSONB 字段** - `requiredBarriers` 和 `passedBarriers` 可扩展
+3. **等待时长** - `initializedAt` 可计算等待时间
+4. **乐观锁** - `@Version` 并发安全
+5. **幂等性** - `initialize()` 重置，`handleBarrierEvent()` 追加去重
+
+### 关键实现
+
+- `barrieraggregate/BarrierAggregate.kt` - 抽象基类，包含核心逻辑
+- `order/barrier/OrderInitBarrier.kt` - 屏障常量 (VOM, DOM)
+- `order/barrier/OrderInitBarrierAggregate.kt` - 订单初始化屏障实现
+- `SendCoeAction.kt` - 初始化屏障
+- `OrderEventConsumer.kt` - 处理 VOM/DOM 事件
 
 ## TaskSpec 模式
 
@@ -263,6 +312,7 @@ taskScheduler.submit(
 
 - `orders` - 订单实体
 - `state_machine` - 状态机持久化
+- `barrier_aggregate` - 屏障聚合记录
 - `scheduled_tasks` - db-scheduler 任务表
 - `shedlock` - 分布式锁表
 

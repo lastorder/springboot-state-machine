@@ -22,3 +22,15 @@ CREATE TABLE IF NOT EXISTS shedlock (
     locked_by VARCHAR(255) NOT NULL,
     PRIMARY KEY (name)
 );
+
+-- barrier aggregate table
+CREATE TABLE IF NOT EXISTS barrier_aggregate (
+    id BIGSERIAL PRIMARY KEY,
+    aggregate_type VARCHAR(100) NOT NULL,
+    aggregate_key VARCHAR(255) NOT NULL,
+    barrier_type VARCHAR(100) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'WAITING',
+    passed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    CONSTRAINT idx_barrier_aggregate_lookup UNIQUE (aggregate_type, aggregate_key, barrier_type)
+);

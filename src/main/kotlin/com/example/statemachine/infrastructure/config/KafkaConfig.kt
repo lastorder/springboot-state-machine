@@ -14,4 +14,44 @@ class KafkaConfig {
             .partitions(3)
             .replicas(1)
             .build()
+
+    @Bean
+    fun prApprovedTopic(): NewTopic =
+        TopicBuilder
+            .name("pr.approved")
+            .partitions(3)
+            .replicas(1)
+            .build()
+
+    @Bean
+    fun coeOrderCreatedTopic(): NewTopic =
+        TopicBuilder
+            .name("coe.order.created")
+            .partitions(3)
+            .replicas(1)
+            .build()
+
+    @Bean
+    fun factoryVomTopic(): NewTopic =
+        TopicBuilder
+            .name("factory.vom")
+            .partitions(3)
+            .replicas(1)
+            .build()
+
+    @Bean
+    fun factoryDomTopic(): NewTopic =
+        TopicBuilder
+            .name("factory.dom")
+            .partitions(3)
+            .replicas(1)
+            .build()
+
+    @Bean
+    fun factoryVomFailedTopic(): NewTopic =
+        TopicBuilder
+            .name("factory.vom.failed")
+            .partitions(3)
+            .replicas(1)
+            .build()
 }

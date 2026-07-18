@@ -21,16 +21,6 @@ class TaskScheduler(
         return schedulerClient.scheduleIfNotExists(taskInstance, scheduledTime)
     }
 
-    fun <P : Serializable> submitIfNotExists(
-        spec: TaskSpec<P>,
-        instanceId: String,
-        payload: P,
-        scheduledTime: Instant = Instant.now(),
-    ): Boolean {
-        val taskInstance = TaskInstance(spec.taskName, instanceId, payload)
-        return schedulerClient.scheduleIfNotExists(taskInstance, scheduledTime)
-    }
-
     fun cancel(
         taskName: String,
         instanceId: String,

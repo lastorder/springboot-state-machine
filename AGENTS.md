@@ -93,11 +93,12 @@ docker-compose up -d
 
 ## Architecture
 
-This is a Spring Boot State Machine demo for order initialization with Fork/Join pattern:
+This is a Spring Boot State Machine demo for order initialization with Barrier Aggregate pattern:
 
 - **Domain Layer**: Order entity, OrderStatus enum, OrderEvent enum
 - **Repository Layer**: JPA repositories
-- **StateMachine Layer**: Fork/Join state machine configuration with persistence
+- **StateMachine Layer**: Simple state machine configuration with persistence
+- **Barrier Aggregate Layer**: Handles parallel event waiting (VOM + DOM)
 - **TaskSpec Layer**: Task specification with distributed lock support
 - **Service Layer**: Business logic
 - **Controller Layer**: REST APIs
@@ -106,37 +107,57 @@ This is a Spring Boot State Machine demo for order initialization with Fork/Join
 - **Scheduler Layer**: DB-Scheduler for task execution
 - **Lock Layer**: ShedLock for distributed locking
 
-## State Machine Flow (Fork/Join Pattern)
+## State Machine Flow (Barrier Aggregate Pattern)
 
 ### States
 ```
 INIT (初始状态)
   ↓ (PR_APPROVED: Kafka消息，保存Order到DB)
 LOCAL_INITIALIZED
-  ↓ (发送COE到Kafka)
+  ↓ (发送COE到Kafka，初始化屏障)
 FACTORY_ORDER_SUBMITTED (同步状态到deal服务REST API)
-  ↓ (Fork: 等待工厂事件)
-  ├→ FIRST_VOM_RECEIVED (收到VOM，等待DOM)
-  └→ FIRST_DOM_RECEIVED (收到DOM，等待VOM)
-  ↓ (Join: 两者都收到)
+  ↓ (Barrier Aggregate: 等待 VOM 和 DOM)
+  ├→ VOM 收到 → 屏障传递
+  └→ DOM 收到 → 屏障传递
+  ↓ (所有屏障通过)
 ORDER_INITIALIZE_SUCCEED
 
 异常分支:
 VOM_FAILED → ORDER_INITIALIZE_FAILED
 ```
 
-### Fork/Join Pattern
-- **Fork State**: `FACTORY_ORDER_SUBMITTED` - Entry point for parallel waiting
-- **Parallel States**: `FIRST_VOM_RECEIVED` and `FIRST_DOM_RECEIVED` wait for each other
-- **Join State**: `ORDER_INITIALIZE_SUCCEED` - Reached when both VOM and DOM received
-- **Failure**: `VOM_FAILED` event leads to `ORDER_INITIALIZE_FAILED`
+### Barrier Aggregate Pattern
+
+Single-table JSONB design with optimistic locking:
+
+```sql
+CREATE TABLE barrier_aggregate (
+    id BIGSERIAL PRIMARY KEY,
+    aggregate_type VARCHAR(500) NOT NULL,      -- 屏障聚合类型（类全名）
+    aggregate_key VARCHAR(255) NOT NULL,       -- 业务键（如 orderNo）
+    required_barriers JSONB NOT NULL,          -- 必需屏障 ["VOM", "DOM"]
+    passed_barriers JSONB NOT NULL DEFAULT '[]', -- 已通过屏障 ["VOM"]
+    initialized_at TIMESTAMP NOT NULL,         -- 初始化时间
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,         -- 乐观锁版本号
+    CONSTRAINT uk_barrier_aggregate UNIQUE(aggregate_type, aggregate_key)
+);
+```
+
+**Key Features**:
+- **Single Row**: One record per aggregate object
+- **JSONB Fields**: `requiredBarriers` and `passedBarriers` stored as JSON arrays
+- **Waiting Duration**: `initializedAt` enables calculating wait time
+- **Optimistic Locking**: `@Version` annotation for concurrent safety
+- **Idempotent**: `initialize()` resets, `handleBarrierEvent()` appends with deduplication
 
 ### Events
 | Event | 来源 | 触发 |
 |-------|------|------|
 | PR_APPROVED | Kafka (pr.approved) | INIT → LOCAL_INITIALIZED |
-| VOM | Kafka (factory.vom) | FACTORY_ORDER_SUBMITTED → FIRST_VOM_RECEIVED |
-| DOM | Kafka (factory.dom) | FACTORY_ORDER_SUBMITTED → FIRST_DOM_RECEIVED |
+| VOM | Kafka (factory.vom) | Passes VOM barrier |
+| DOM | Kafka (factory.dom) | Passes DOM barrier |
 | VOM_FAILED | Kafka (factory.vom.failed) | * → ORDER_INITIALIZE_FAILED |
 
 ### Kafka Topics
@@ -220,12 +241,19 @@ taskScheduler.submit(
 ## Key Implementation Files
 
 ### State Machine
-- `StateMachineConfig.kt` - Fork/Join state machine configuration
+- `StateMachineConfig.kt` - Simple state machine configuration
 - `PrApprovedAction.kt` - Saves Order from PR_APPROVED event
-- `SendCoeAction.kt` - Sends COE to Kafka
+- `SendCoeAction.kt` - Sends COE to Kafka, initializes barriers
 - `SyncDealAction.kt` - Syncs order to deal service
 - `OrderEventConsumer.kt` - Kafka event consumer
 - `OrderService.kt` - Business logic
+
+### Barrier Aggregate
+- `barrieraggregate/BarrierAggregate.kt` - Abstract base class with core logic
+- `barrieraggregate/BarrierAggregateRecord.kt` - Domain model with computed properties
+- `barrieraggregate/BarrierAggregateRepository.kt` - Repository interface
+- `order/barrier/OrderInitBarrier.kt` - Barrier constants (VOM, DOM)
+- `order/barrier/OrderInitBarrierAggregate.kt` - Order init barrier implementation
 
 ### TaskSpec
 - `task/spec/TaskSpec.kt` - Core interface
@@ -242,6 +270,7 @@ taskScheduler.submit(
 - `shedlock` - ShedLock lock table
 - `orders` - Order entity
 - `state_machine` - State machine persistence
+- `barrier_aggregate` - Barrier aggregate records
 
 ## Code Quality
 

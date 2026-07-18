@@ -21,18 +21,12 @@ class StateMachineService(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    /**
-     * 发送事件（使用 orderNo 作为 machineId）
-     */
-    fun sendEventByOrderNo(
+    fun sendEvent(
         orderNo: String,
         event: OrderEvent,
-    ): Boolean = sendEventByOrderNo(orderNo, event, emptyMap())
+    ): Boolean = sendEvent(orderNo, event, emptyMap())
 
-    /**
-     * 发送事件（使用 orderNo 作为 machineId）
-     */
-    fun sendEventByOrderNo(
+    fun sendEvent(
         orderNo: String,
         event: OrderEvent,
         headers: Map<String, Any>,
@@ -75,9 +69,19 @@ class StateMachineService(
         }
     }
 
-    /**
-     * 获取当前状态（通过 orderNo）
-     */
+    @Deprecated("Use sendEvent(orderNo, event) instead")
+    fun sendEventByOrderNo(
+        orderNo: String,
+        event: OrderEvent,
+    ): Boolean = sendEvent(orderNo, event)
+
+    @Deprecated("Use sendEvent(orderNo, event, headers) instead")
+    fun sendEventByOrderNo(
+        orderNo: String,
+        event: OrderEvent,
+        headers: Map<String, Any>,
+    ): Boolean = sendEvent(orderNo, event, headers)
+
     fun getCurrentStateByOrderNo(orderNo: String): OrderStatus? {
         val machineId = orderNo
         val stateMachine = stateMachineFactory.getStateMachine(machineId)
@@ -93,9 +97,6 @@ class StateMachineService(
         }
     }
 
-    /**
-     * 初始化状态机（使用 orderNo 作为 machineId）
-     */
     fun initializeStateMachineByOrderNo(
         orderNo: String,
         initialState: OrderStatus = OrderStatus.INIT,
@@ -114,39 +115,29 @@ class StateMachineService(
         }
     }
 
-    /**
-     * 旧的 API（使用 orderId）- 内部转换为 orderNo
-     * @deprecated 请使用 sendEventByOrderNo
-     */
-    @Deprecated("Use sendEventByOrderNo instead", ReplaceWith("sendEventByOrderNo(orderNo, event, headers)"))
+    @Deprecated("Use sendEvent(orderNo, event) instead")
     fun sendEvent(
         orderId: Long,
         event: OrderEvent,
     ): Boolean = sendEvent(orderId, event, emptyMap())
 
-    /**
-     * 旧的 API（使用 orderId）- 内部转换为 orderNo
-     * @deprecated 请使用 sendEventByOrderNo
-     */
-    @Deprecated("Use sendEventByOrderNo instead")
+    @Deprecated("Use sendEvent(orderNo, event, headers) instead")
     fun sendEvent(
         orderId: Long,
         event: OrderEvent,
         headers: Map<String, Any>,
     ): Boolean {
-        // 查找 orderNo
         val orderNo = orderJpaRepository.findIdByOrderNo(headers["orderNo"] as? String ?: "")
         if (orderNo == null && orderId > 0) {
             val entity = orderJpaRepository.findById(orderId).orElse(null)
             if (entity != null) {
-                return sendEventByOrderNo(entity.orderNo, event, headers)
+                return sendEvent(entity.orderNo, event, headers)
             }
         }
 
-        // 如果有 orderNo 在 headers 中，使用它
         val orderNoFromHeaders = headers["orderNo"] as? String
         if (orderNoFromHeaders != null) {
-            return sendEventByOrderNo(orderNoFromHeaders, event, headers)
+            return sendEvent(orderNoFromHeaders, event, headers)
         }
 
         log.warn("Cannot determine orderNo for orderId=$orderId, event=$event")
