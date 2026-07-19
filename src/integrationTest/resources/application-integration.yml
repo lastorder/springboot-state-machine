@@ -39,14 +39,6 @@ management:
       exposure:
         include: health,info,metrics
 
-spring.statemachine:
-  jpa:
-    enabled: true
-  data:
-    jpa:
-      repositories:
-        enabled: true
-
 order:
   validation:
     timeout-minutes: 10
@@ -64,5 +56,4 @@ shedlock:
 logging:
   level:
     root: WARN
-    com.example.statemachine: DEBUG
-    org.springframework.statemachine: INFO
+    com.example.statemachine: INFO

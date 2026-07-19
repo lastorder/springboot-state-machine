@@ -11,7 +11,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
@@ -37,7 +37,6 @@ spring:
 logging:
   level:
     com.example.statemachine: INFO
-    org.springframework.statemachine: DEBUG
     org.apache.kafka: INFO
     org.springframework.kafka: INFO
     org.hibernate: INFO
@@ -51,11 +50,6 @@ management:
       exposure:
         include: health,info,metrics
 
-spring.statemachine:
-  jpa:
-    enabled: true
-
-# DB-Scheduler 配置
 db-scheduler:
   enabled: true
   threads: 5

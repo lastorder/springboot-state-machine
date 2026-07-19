@@ -17,4 +17,4 @@ shedlock:
 logging:
   level:
     root: WARN
-    com.example.statemachine: DEBUG
+    com.example.statemachine: INFO
