@@ -34,19 +34,6 @@ class PrApprovedAction(
             return ActionResult.businessError("Missing required header: orderNo")
         }
 
-        if (marketStr == null) {
-            log.error("Missing market header")
-            return ActionResult.businessError("Missing market header")
-        }
-
-        val market =
-            try {
-                Market.valueOf(marketStr)
-            } catch (e: IllegalArgumentException) {
-                log.error("Invalid market value: $marketStr")
-                return ActionResult.businessError("Invalid market value: $marketStr")
-            }
-
         log.info("Processing PR_APPROVED event: orderNo={}", orderNo)
 
         return try {
@@ -54,15 +41,21 @@ class PrApprovedAction(
 
             if (existingOrder != null) {
                 log.info("Order already exists: id=${existingOrder.id}, orderNo=$orderNo, status=${existingOrder.status}")
-
-                if (existingOrder.status != OrderStatus.INIT) {
-                    log.info("Order already processed, skipping: orderNo=$orderNo, status=${existingOrder.status}")
-                    return ActionResult.success()
-                }
-
-                log.info("Re-processed existing order: orderNo=$orderNo")
                 return ActionResult.success()
             }
+
+            if (marketStr == null) {
+                log.error("Missing market header for new order")
+                return ActionResult.businessError("Missing market header for new order")
+            }
+
+            val market =
+                try {
+                    Market.valueOf(marketStr)
+                } catch (e: IllegalArgumentException) {
+                    log.error("Invalid market value: $marketStr")
+                    return ActionResult.businessError("Invalid market value: $marketStr")
+                }
 
             val order =
                 Order.fromPrApproved(
