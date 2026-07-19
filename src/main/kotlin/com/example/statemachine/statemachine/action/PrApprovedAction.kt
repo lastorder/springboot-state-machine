@@ -1,35 +1,33 @@
 package com.example.statemachine.statemachine.action
 
+import com.example.statemachine.api.Action
+import com.example.statemachine.api.ActionResult
+import com.example.statemachine.api.StateContext
 import com.example.statemachine.domain.enums.Market
-import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.model.Order
 import com.example.statemachine.domain.repository.OrderRepository
+import com.example.statemachine.infrastructure.persistence.StateMachineJpaRepository
 import org.slf4j.LoggerFactory
-import org.springframework.statemachine.StateContext
-import org.springframework.statemachine.action.Action
-import org.springframework.statemachine.data.jpa.JpaStateMachineRepository
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
 
 @Component
 class PrApprovedAction(
     private val orderRepository: OrderRepository,
-    private val jpaStateMachineRepository: JpaStateMachineRepository,
-) : Action<OrderStatus, OrderEvent> {
+    private val stateMachineJpaRepository: StateMachineJpaRepository,
+) : Action<OrderStatus> {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    override fun execute(context: StateContext<OrderStatus, OrderEvent>) {
+    override fun execute(context: StateContext<OrderStatus>): ActionResult {
         log.info("PrApprovedAction.execute() called")
 
-        val message = context.message
-
-        val orderNo = message.headers.get("orderNo") as? String
-        val productId = message.headers.get("productId") as? String
-        val productName = message.headers.get("productName") as? String
-        val quantity = (message.headers.get("quantity") as? Number)?.toInt()
-        val amount = extractAmount(message.headers.get("amount"))
-        val marketStr = message.headers.get("market") as? String
+        val orderNo = context.headers["orderNo"] as? String
+        val productId = context.headers["productId"] as? String
+        val productName = context.headers["productName"] as? String
+        val quantity = (context.headers["quantity"] as? Number)?.toInt()
+        val amount = extractAmount(context.headers["amount"])
+        val marketStr = context.headers["market"] as? String
         val market =
             marketStr?.let {
                 try {
@@ -43,17 +41,17 @@ class PrApprovedAction(
 
         if (orderNo == null) {
             log.error("Missing required header: orderNo")
-            return
+            return ActionResult.failure("Missing required header: orderNo")
         }
 
         if (market == null) {
             log.error("Missing or invalid market header: $marketStr")
-            return
+            return ActionResult.failure("Missing or invalid market header: $marketStr")
         }
 
         log.info("Processing PR_APPROVED event: orderNo={}", orderNo)
 
-        try {
+        return try {
             val existingOrder = orderRepository.findByOrderNo(orderNo)
 
             if (existingOrder != null) {
@@ -63,11 +61,11 @@ class PrApprovedAction(
 
                 if (currentStatus != null && currentStatus != OrderStatus.INIT) {
                     log.info("Order already processed, skipping: orderNo=$orderNo, status=$currentStatus")
-                    return
+                    return ActionResult.success()
                 }
 
                 log.info("Re-processed existing order: orderNo=$orderNo")
-                return
+                return ActionResult.success()
             }
 
             val order =
@@ -82,13 +80,15 @@ class PrApprovedAction(
 
             val savedOrder = orderRepository.save(order)
             log.info("Order saved from PR_APPROVED: id=${savedOrder.id}, orderNo=${savedOrder.orderNo}")
+            ActionResult.success()
         } catch (e: Exception) {
             log.error("Error in PrApprovedAction: ${e.message}", e)
+            ActionResult.failure("Error in PrApprovedAction: ${e.message}")
         }
     }
 
     private fun getCurrentState(orderNo: String): OrderStatus? {
-        val entity = jpaStateMachineRepository.findById(orderNo).orElse(null)
+        val entity = stateMachineJpaRepository.findById(orderNo).orElse(null)
         return entity?.let { OrderStatus.valueOf(it.state) }
     }
 

@@ -1,77 +1,65 @@
 package com.example.statemachine.statemachine.config
 
-import com.example.statemachine.domain.enums.OrderEvent
+import com.example.statemachine.api.StateChangedListener
+import com.example.statemachine.api.StateContext
 import com.example.statemachine.domain.enums.OrderStatus
+import com.example.statemachine.infrastructure.kafka.OrderEventProducer
+import com.example.statemachine.infrastructure.kafka.dto.OrderStatusChangeEvent
 import com.example.statemachine.infrastructure.persistence.repository.OrderJpaRepository
 import org.slf4j.LoggerFactory
-import org.springframework.messaging.Message
-import org.springframework.statemachine.StateContext
-import org.springframework.statemachine.StateMachine
-import org.springframework.statemachine.listener.StateMachineListenerAdapter
-import org.springframework.statemachine.state.State
-import org.springframework.statemachine.transition.Transition
 import org.springframework.stereotype.Component
 import org.springframework.transaction.support.TransactionTemplate
+import java.time.Instant
 
 @Component
 class StateMachineListener(
     private val orderJpaRepository: OrderJpaRepository,
+    private val orderEventProducer: OrderEventProducer,
     private val transactionTemplate: TransactionTemplate,
-) : StateMachineListenerAdapter<OrderStatus, OrderEvent>() {
+) : StateChangedListener<OrderStatus> {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    override fun stateChanged(
-        from: State<OrderStatus, OrderEvent>?,
-        to: State<OrderStatus, OrderEvent>?,
-    ) {
-        log.info("State changed: ${from?.id} -> ${to?.id}")
-    }
+    override fun onStateChanged(context: StateContext<OrderStatus>) {
+        val orderNo = context.machineId
+        val sourceState = context.sourceState
+        val targetState = context.targetState
 
-    override fun transition(transition: Transition<OrderStatus, OrderEvent>) {
-        log.info("Transition: ${transition.source?.id} -> ${transition.target?.id}")
-    }
+        log.info("State changed: orderNo={}, {} -> {}", orderNo, sourceState, targetState)
 
-    override fun stateContext(context: StateContext<OrderStatus, OrderEvent>) {
-        if (context.stage == StateContext.Stage.STATE_CHANGED) {
-            val orderNo = context.stateMachine.id as? String
-            val newStatus = context.target?.id
-
-            if (!orderNo.isNullOrBlank() && newStatus != null) {
-                syncOrderStatus(orderNo, newStatus)
-            }
-        }
-    }
-
-    override fun eventNotAccepted(event: Message<OrderEvent>) {
-        log.warn("Event not accepted: ${event.payload}")
-    }
-
-    override fun stateMachineError(
-        stateMachine: StateMachine<OrderStatus, OrderEvent>,
-        exception: Exception,
-    ) {
-        log.error("State machine error", exception)
+        syncOrderStatus(orderNo, targetState, sourceState, context.event)
     }
 
     private fun syncOrderStatus(
         orderNo: String,
         newStatus: OrderStatus,
+        fromStatus: OrderStatus,
+        event: Enum<*>?,
     ) {
         if (orderNo.isBlank()) {
             return
         }
 
-        try {
-            transactionTemplate.executeWithoutResult {
-                val updated = orderJpaRepository.updateStatusByOrderNo(orderNo, newStatus)
-                if (updated > 0) {
-                    log.info("Synced order status: orderNo=$orderNo, status=$newStatus")
-                } else {
-                    log.warn("Order not found for status sync: orderNo=$orderNo")
-                }
+        transactionTemplate.executeWithoutResult {
+            val updated = orderJpaRepository.updateStatusByOrderNo(orderNo, newStatus)
+            if (updated > 0) {
+                log.info("Synced order status: orderNo={}, status={}", orderNo, newStatus)
+            } else {
+                log.warn("Order not found for status sync: orderNo={}", orderNo)
             }
-        } catch (e: Exception) {
-            log.error("Status sync failed: orderNo=$orderNo, status=$newStatus", e)
+
+            try {
+                orderEventProducer.sendStatusChangeEvent(
+                    OrderStatusChangeEvent(
+                        orderId = orderNo.hashCode().toLong(),
+                        fromStatus = fromStatus,
+                        toStatus = newStatus,
+                        event = event as? com.example.statemachine.domain.enums.OrderEvent,
+                        timestamp = Instant.now(),
+                    ),
+                )
+            } catch (e: Exception) {
+                log.error("Failed to send status change event: orderNo={}", orderNo, e)
+            }
         }
     }
 }

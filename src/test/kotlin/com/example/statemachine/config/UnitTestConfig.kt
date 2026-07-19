@@ -4,6 +4,7 @@ import com.example.statemachine.application.barrier.OrderInitBarrierAggregate
 import com.example.statemachine.barrieraggregate.BarrierAggregateRepository
 import com.example.statemachine.infrastructure.kafka.CoeProducer
 import com.example.statemachine.infrastructure.kafka.OrderEventProducer
+import com.example.statemachine.infrastructure.persistence.StateMachineJpaRepository
 import com.example.statemachine.infrastructure.rest.DealClient
 import com.example.statemachine.statemachine.action.PrApprovedAction
 import com.example.statemachine.statemachine.action.SendCoeAction
@@ -13,7 +14,6 @@ import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
 import org.springframework.kafka.core.KafkaTemplate
-import org.springframework.statemachine.data.jpa.JpaStateMachineRepository
 
 @TestConfiguration
 class UnitTestConfig {
@@ -40,8 +40,8 @@ class UnitTestConfig {
     @Bean
     fun prApprovedAction(
         orderRepository: com.example.statemachine.domain.repository.OrderRepository,
-        jpaStateMachineRepository: JpaStateMachineRepository,
-    ): PrApprovedAction = PrApprovedAction(orderRepository, jpaStateMachineRepository)
+        stateMachineJpaRepository: StateMachineJpaRepository,
+    ): PrApprovedAction = PrApprovedAction(orderRepository, stateMachineJpaRepository)
 
     @Bean
     fun sendCoeAction(

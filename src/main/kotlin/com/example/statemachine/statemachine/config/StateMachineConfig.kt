@@ -1,113 +1,148 @@
 package com.example.statemachine.statemachine.config
 
+import com.example.statemachine.core.StateMachineFactory
+import com.example.statemachine.core.Transition
+import com.example.statemachine.core.TransitionTable
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
+import com.example.statemachine.infrastructure.persistence.OrderStateMachineRepository
+import com.example.statemachine.infrastructure.persistence.StateMachineJpaRepository
 import com.example.statemachine.statemachine.action.BroadcastCdoaAcceptAction
 import com.example.statemachine.statemachine.action.BroadcastPurchaseRequestAcceptAction
 import com.example.statemachine.statemachine.action.BroadcastPurchaseRequestAcceptRetryAction
 import com.example.statemachine.statemachine.action.PrApprovedAction
 import com.example.statemachine.statemachine.action.SendCoeAction
 import com.example.statemachine.statemachine.action.SyncDealAction
+import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.statemachine.config.EnableStateMachineFactory
-import org.springframework.statemachine.config.StateMachineConfigurerAdapter
-import org.springframework.statemachine.config.builders.StateMachineConfigurationConfigurer
-import org.springframework.statemachine.config.builders.StateMachineStateConfigurer
-import org.springframework.statemachine.config.builders.StateMachineTransitionConfigurer
 
 @Configuration
-@EnableStateMachineFactory
-class StateMachineConfig(
-    private val prApprovedAction: PrApprovedAction,
-    private val sendCoeAction: SendCoeAction,
-    private val syncDealAction: SyncDealAction,
-    private val broadcastPurchaseRequestAcceptAction: BroadcastPurchaseRequestAcceptAction,
-    private val broadcastPurchaseRequestAcceptRetryAction: BroadcastPurchaseRequestAcceptRetryAction,
-    private val broadcastCdoaAcceptAction: BroadcastCdoaAcceptAction,
-    private val stateMachineListener: StateMachineListener,
-) : StateMachineConfigurerAdapter<OrderStatus, OrderEvent>() {
-    override fun configure(config: StateMachineConfigurationConfigurer<OrderStatus, OrderEvent>) {
-        config.withConfiguration().listener(stateMachineListener)
-    }
+class StateMachineConfig {
+    @Bean
+    fun transitionTable(
+        prApprovedAction: PrApprovedAction,
+        sendCoeAction: SendCoeAction,
+        syncDealAction: SyncDealAction,
+        broadcastPurchaseRequestAcceptAction: BroadcastPurchaseRequestAcceptAction,
+        broadcastPurchaseRequestAcceptRetryAction: BroadcastPurchaseRequestAcceptRetryAction,
+        broadcastCdoaAcceptAction: BroadcastCdoaAcceptAction,
+    ): TransitionTable<OrderStatus> =
+        TransitionTable<OrderStatus>().apply {
+            add(
+                Transition(
+                    source = OrderStatus.INIT,
+                    target = OrderStatus.LOCAL_INITIALIZED,
+                    event = OrderEvent.PR_APPROVED,
+                    action = prApprovedAction,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.LOCAL_INITIALIZED,
+                    target = OrderStatus.FACTORY_ORDER_SUBMITTED,
+                    event = null,
+                    action = sendCoeAction,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.FACTORY_ORDER_SUBMITTED,
+                    target = OrderStatus.ORDER_INITIALIZE_SUCCEED,
+                    event = OrderEvent.VOM,
+                    action = syncDealAction,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.FACTORY_ORDER_SUBMITTED,
+                    target = OrderStatus.ORDER_INITIALIZE_SUCCEED,
+                    event = OrderEvent.DOM,
+                    action = syncDealAction,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.FACTORY_ORDER_SUBMITTED,
+                    target = OrderStatus.ORDER_INITIALIZE_FAILED,
+                    event = OrderEvent.VOM_FAILED,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.ORDER_INITIALIZE_SUCCEED,
+                    target = OrderStatus.PURCHASE_REQUEST_ACCEPTING,
+                    event = OrderEvent.PURCHASE_REQUEST_ACCEPT,
+                    action = broadcastPurchaseRequestAcceptAction,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.PURCHASE_REQUEST_ACCEPTING,
+                    target = OrderStatus.PURCHASE_REQUEST_ACCEPTED,
+                    event = OrderEvent.PURCHASE_REQUEST_ACCEPT_SUCCESS,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.PURCHASE_REQUEST_ACCEPTING,
+                    target = OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED,
+                    event = OrderEvent.PURCHASE_REQUEST_ACCEPT_FAILED,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED,
+                    target = OrderStatus.PURCHASE_REQUEST_ACCEPTING,
+                    event = OrderEvent.PURCHASE_REQUEST_ACCEPT_RETRY,
+                    action = broadcastPurchaseRequestAcceptRetryAction,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.PURCHASE_REQUEST_ACCEPTED,
+                    target = OrderStatus.CDOA_ACCEPTING,
+                    event = OrderEvent.CDOA_ACCEPT,
+                    action = broadcastCdoaAcceptAction,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.CDOA_ACCEPTING,
+                    target = OrderStatus.CDOA_ACCEPTED,
+                    event = OrderEvent.CDOA_ACCEPT_SUCCESS,
+                ),
+            )
+            add(
+                Transition(
+                    source = OrderStatus.CDOA_ACCEPTING,
+                    target = OrderStatus.CDOA_ACCEPT_FAILED,
+                    event = OrderEvent.CDOA_ACCEPT_FAILED,
+                ),
+            )
+        }
 
-    override fun configure(states: StateMachineStateConfigurer<OrderStatus, OrderEvent>) {
-        states
-            .withStates()
-            .initial(OrderStatus.INIT)
-            .state(OrderStatus.LOCAL_INITIALIZED)
-            .state(OrderStatus.FACTORY_ORDER_SUBMITTED, syncDealAction, null)
-            .state(OrderStatus.ORDER_INITIALIZE_SUCCEED)
-            .end(OrderStatus.ORDER_INITIALIZE_FAILED)
-            .state(OrderStatus.PURCHASE_REQUEST_ACCEPTING, broadcastPurchaseRequestAcceptAction, null)
-            .state(OrderStatus.PURCHASE_REQUEST_ACCEPTED)
-            .state(OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED)
-            .state(OrderStatus.CDOA_ACCEPTING, broadcastCdoaAcceptAction, null)
-            .state(OrderStatus.CDOA_ACCEPTED)
-            .end(OrderStatus.CDOA_ACCEPT_FAILED)
-    }
+    @Bean
+    fun stateMachineRepository(
+        jpaRepository: StateMachineJpaRepository,
+        transitionTable: TransitionTable<OrderStatus>,
+        stateMachineListener: StateMachineListener,
+    ): OrderStateMachineRepository =
+        OrderStateMachineRepository(
+            jpaRepository = jpaRepository,
+            transitionTable = transitionTable,
+            listener = stateMachineListener,
+        )
 
-    override fun configure(transitions: StateMachineTransitionConfigurer<OrderStatus, OrderEvent>) {
-        transitions
-            .withExternal()
-            .source(OrderStatus.INIT)
-            .target(OrderStatus.LOCAL_INITIALIZED)
-            .event(OrderEvent.PR_APPROVED)
-            .action(prApprovedAction)
-            .and()
-            .withExternal()
-            .source(OrderStatus.LOCAL_INITIALIZED)
-            .target(OrderStatus.FACTORY_ORDER_SUBMITTED)
-            .action(sendCoeAction)
-            .and()
-            .withExternal()
-            .source(OrderStatus.FACTORY_ORDER_SUBMITTED)
-            .target(OrderStatus.ORDER_INITIALIZE_SUCCEED)
-            .event(OrderEvent.VOM)
-            .and()
-            .withExternal()
-            .source(OrderStatus.FACTORY_ORDER_SUBMITTED)
-            .target(OrderStatus.ORDER_INITIALIZE_SUCCEED)
-            .event(OrderEvent.DOM)
-            .and()
-            .withExternal()
-            .source(OrderStatus.FACTORY_ORDER_SUBMITTED)
-            .target(OrderStatus.ORDER_INITIALIZE_FAILED)
-            .event(OrderEvent.VOM_FAILED)
-            .and()
-            .withExternal()
-            .source(OrderStatus.ORDER_INITIALIZE_SUCCEED)
-            .target(OrderStatus.PURCHASE_REQUEST_ACCEPTING)
-            .event(OrderEvent.PURCHASE_REQUEST_ACCEPT)
-            .and()
-            .withExternal()
-            .source(OrderStatus.PURCHASE_REQUEST_ACCEPTING)
-            .target(OrderStatus.PURCHASE_REQUEST_ACCEPTED)
-            .event(OrderEvent.PURCHASE_REQUEST_ACCEPT_SUCCESS)
-            .and()
-            .withExternal()
-            .source(OrderStatus.PURCHASE_REQUEST_ACCEPTING)
-            .target(OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED)
-            .event(OrderEvent.PURCHASE_REQUEST_ACCEPT_FAILED)
-            .and()
-            .withExternal()
-            .source(OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED)
-            .target(OrderStatus.PURCHASE_REQUEST_ACCEPTING)
-            .event(OrderEvent.PURCHASE_REQUEST_ACCEPT_RETRY)
-            .action(broadcastPurchaseRequestAcceptRetryAction)
-            .and()
-            .withExternal()
-            .source(OrderStatus.PURCHASE_REQUEST_ACCEPTED)
-            .target(OrderStatus.CDOA_ACCEPTING)
-            .event(OrderEvent.CDOA_ACCEPT)
-            .and()
-            .withExternal()
-            .source(OrderStatus.CDOA_ACCEPTING)
-            .target(OrderStatus.CDOA_ACCEPTED)
-            .event(OrderEvent.CDOA_ACCEPT_SUCCESS)
-            .and()
-            .withExternal()
-            .source(OrderStatus.CDOA_ACCEPTING)
-            .target(OrderStatus.CDOA_ACCEPT_FAILED)
-            .event(OrderEvent.CDOA_ACCEPT_FAILED)
-    }
+    @Bean
+    fun stateMachineFactory(
+        transitionTable: TransitionTable<OrderStatus>,
+        repository: OrderStateMachineRepository,
+        stateMachineListener: StateMachineListener,
+    ): StateMachineFactory<OrderStatus> =
+        StateMachineFactory(
+            initialState = OrderStatus.INIT,
+            transitionTable = transitionTable,
+            listener = stateMachineListener,
+            repository = repository,
+        )
 }

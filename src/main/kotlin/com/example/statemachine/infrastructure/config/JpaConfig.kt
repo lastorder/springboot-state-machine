@@ -7,11 +7,6 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories
 
 @Configuration
 @EnableJpaAuditing
-@EnableJpaRepositories(basePackages = ["com.example.statemachine.infrastructure.persistence.repository"])
-@EntityScan(
-    basePackages = [
-        "com.example.statemachine.infrastructure.persistence.entity",
-        "org.springframework.statemachine.data.jpa",
-    ],
-)
+@EnableJpaRepositories(basePackages = ["com.example.statemachine.infrastructure.persistence"])
+@EntityScan(basePackages = ["com.example.statemachine.infrastructure.persistence"])
 class JpaConfig

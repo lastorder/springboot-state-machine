@@ -1,29 +1,20 @@
 package com.example.statemachine.application.task
 
+import com.example.statemachine.core.StateMachineFactory
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
-import com.example.statemachine.statemachine.config.StateMachineListener
 import com.example.statemachine.task.spec.LockingTaskSpec
 import com.example.statemachine.task.spec.RetryStrategy
 import com.example.statemachine.task.spec.TaskContext
 import com.example.statemachine.task.spec.TaskResult
 import net.javacrumbs.shedlock.core.LockProvider
 import org.slf4j.LoggerFactory
-import org.springframework.messaging.support.MessageBuilder
-import org.springframework.statemachine.StateMachine
-import org.springframework.statemachine.config.StateMachineFactory
-import org.springframework.statemachine.data.jpa.JpaRepositoryStateMachine
-import org.springframework.statemachine.data.jpa.JpaStateMachineRepository
-import org.springframework.statemachine.support.DefaultStateMachineContext
 import org.springframework.stereotype.Component
-import reactor.core.publisher.Mono
 import java.time.Duration
 
 @Component
 class OrderStateMachineTaskSpec(
-    private val stateMachineFactory: StateMachineFactory<OrderStatus, OrderEvent>,
-    private val jpaStateMachineRepository: JpaStateMachineRepository,
-    private val stateMachineListener: StateMachineListener,
+    private val stateMachineFactory: StateMachineFactory<OrderStatus>,
     lockProvider: LockProvider,
 ) : LockingTaskSpec<OrderEventPayload>(
         lockProvider = lockProvider,
@@ -64,83 +55,20 @@ class OrderStateMachineTaskSpec(
         event: OrderEvent,
         headers: Map<String, Any> = emptyMap(),
     ): Boolean {
-        val machineId = orderNo
         log.debug("Sending event: orderNo=$orderNo, event=$event")
 
-        val stateMachine = stateMachineFactory.getStateMachine(machineId)
-
         return try {
-            stateMachine.addStateListener(stateMachineListener)
-
-            restoreStateMachine(stateMachine, machineId).block()
-            stateMachine.startReactively().block()
-
-            val message =
-                MessageBuilder
-                    .withPayload(event)
-                    .setHeader("orderNo", orderNo)
-                    .apply { headers.forEach { (k, v) -> setHeader(k, v) } }
-                    .build()
-
+            val stateMachine = stateMachineFactory.create(orderNo)
             val result =
-                stateMachine
-                    .sendEvent(Mono.just(message))
-                    .next()
-                    .map { it.resultType.name == "ACCEPTED" }
-                    .onErrorReturn(false)
-                    .block() ?: false
-
-            if (result) {
-                persistStateMachine(stateMachine, machineId)
-            }
-
+                stateMachine.sendEvent(
+                    event = event,
+                    headers = headers + ("orderNo" to orderNo),
+                )
             result
         } catch (e: Exception) {
             log.error("Error sending event: orderNo=$orderNo, event=$event", e)
             false
-        } finally {
-            stateMachine.stopReactively().block()
         }
-    }
-
-    private fun restoreStateMachine(
-        stateMachine: StateMachine<OrderStatus, OrderEvent>,
-        machineId: String,
-    ): Mono<Void> {
-        val entity = jpaStateMachineRepository.findById(machineId)
-        return if (entity.isPresent) {
-            val state = OrderStatus.valueOf(entity.get().state)
-            resetStateMachineContext(stateMachine, state, machineId)
-        } else {
-            resetStateMachineContext(stateMachine, OrderStatus.INIT, machineId)
-        }
-    }
-
-    private fun resetStateMachineContext(
-        stateMachine: StateMachine<OrderStatus, OrderEvent>,
-        state: OrderStatus,
-        machineId: String,
-    ): Mono<Void> {
-        val context =
-            DefaultStateMachineContext<OrderStatus, OrderEvent>(
-                state,
-                null,
-                null,
-                null,
-                null,
-                machineId,
-            )
-        return stateMachine.stateMachineAccessor.withRegion().resetStateMachineReactively(context)
-    }
-
-    private fun persistStateMachine(
-        stateMachine: StateMachine<OrderStatus, OrderEvent>,
-        machineId: String,
-    ) {
-        val entity = JpaRepositoryStateMachine()
-        entity.machineId = machineId
-        entity.state = stateMachine.state.id.name
-        jpaStateMachineRepository.save(entity)
     }
 
     companion object {
