@@ -37,8 +37,8 @@ spring:
 logging:
   level:
     com.example.statemachine: INFO
-    org.apache.kafka: INFO
-    org.springframework.kafka: INFO
+    org.apache.kafka: WARN
+    org.springframework.kafka: WARN
     org.hibernate: INFO
 
 server:

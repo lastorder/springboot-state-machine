@@ -28,6 +28,7 @@
         </root>
     </springProfile>
 
+    <!-- Project modules: INFO -->
     <logger name="com.example.statemachine" level="INFO"/>
     <logger name="com.github.kagkarlsson" level="INFO"/>
 </configuration>
