@@ -1,12 +1,10 @@
 package com.example.statemachine.core
 
 import com.example.statemachine.api.Action
-import com.example.statemachine.api.Event
-import com.example.statemachine.api.State
 
-data class Transition<S : State, E : Event>(
+data class Transition<S : Enum<S>>(
     val source: S,
     val target: S,
-    val event: E?,
-    val action: Action<S, E>? = null,
+    val event: Enum<*>?,
+    val action: Action<S>? = null,
 )

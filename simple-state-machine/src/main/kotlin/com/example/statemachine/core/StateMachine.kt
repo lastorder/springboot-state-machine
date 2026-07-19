@@ -2,27 +2,27 @@ package com.example.statemachine.core
 
 import com.example.statemachine.api.Action
 import com.example.statemachine.api.ActionResult
-import com.example.statemachine.api.Event
-import com.example.statemachine.api.State
 import com.example.statemachine.api.StateChangedListener
 import com.example.statemachine.api.StateContext
 import com.example.statemachine.persistence.StateMachineRepository
 import org.slf4j.LoggerFactory
 
-class StateMachine<S : State, E : Event> private constructor(
-    private val initialState: S,
-    private val transitionTable: TransitionTable<S, E>,
-    private val listener: StateChangedListener<S, E>?,
+class StateMachine<S : Enum<S>> internal constructor(
+    val id: String,
+    private var currentState: S,
+    val initialState: S,
+    private val extendedState: MutableMap<String, Any?>,
+    private val transitionTable: TransitionTable<S>,
+    private val listener: StateChangedListener<S>?,
     private val repository: StateMachineRepository<S>?,
 ) {
+    val state: S get() = currentState
+
     fun sendEvent(
-        machineId: String,
-        event: E,
+        event: Enum<*>,
         headers: Map<String, Any?> = emptyMap(),
     ): Boolean {
-        log.debug("Sending event: machineId={}, event={}", machineId, event)
-
-        val currentState = repository?.findById(machineId) ?: initialState
+        log.debug("Sending event: machineId={}, event={}", id, event)
         log.debug("Current state: {}", currentState)
 
         val transition = transitionTable.findByEvent(currentState, event)
@@ -31,32 +31,28 @@ class StateMachine<S : State, E : Event> private constructor(
             return false
         }
 
-        return executeTransition(machineId, currentState, transition, event, headers)
+        return executeTransition(currentState, transition, event, headers)
     }
 
-    fun getCurrentState(machineId: String): S {
-        return repository?.findById(machineId) ?: initialState
-    }
-
-    fun reset(machineId: String) {
-        repository?.delete(machineId)
-        log.debug("Reset state machine: machineId={}", machineId)
+    fun reset() {
+        repository?.deleteById(id)
+        log.debug("Reset state machine: machineId={}", id)
     }
 
     private fun executeTransition(
-        machineId: String,
-        currentState: S,
-        transition: Transition<S, E>,
-        event: E,
+        sourceState: S,
+        transition: Transition<S>,
+        event: Enum<*>,
         headers: Map<String, Any?>,
     ): Boolean {
         val context =
             StateContext(
-                machineId = machineId,
-                sourceState = currentState,
+                machineId = id,
+                sourceState = sourceState,
                 targetState = transition.target,
                 event = event,
                 headers = headers,
+                extendedState = extendedState,
             )
 
         val actionResult = transition.action?.execute(context) ?: ActionResult.success()
@@ -65,7 +61,7 @@ class StateMachine<S : State, E : Event> private constructor(
             is ActionResult.Failure -> {
                 log.warn(
                     "Action failed: machineId={}, reason={}",
-                    machineId,
+                    id,
                     actionResult.reason,
                 )
                 false
@@ -73,21 +69,24 @@ class StateMachine<S : State, E : Event> private constructor(
 
             is ActionResult.Success -> {
                 val newState = transition.target
-                repository?.save(machineId, newState)
-                log.info("State changed: machineId={}, {} -> {}", machineId, currentState, newState)
+                currentState = newState
+                repository?.save(this)
+                log.info("State changed: machineId={}, {} -> {}", id, sourceState, newState)
 
                 listener?.onStateChanged(
                     StateContext(
-                        machineId = machineId,
-                        sourceState = currentState,
+                        machineId = id,
+                        sourceState = sourceState,
                         targetState = newState,
                         event = event,
                         headers = headers,
-                        extendedState = context.extendedState,
+                        extendedState = extendedState,
                     ),
                 )
 
-                executeAutoTransitionIfNeeded(machineId, newState, headers, context.extendedState)
+                executeAutoTransitionIfNeeded(newState, headers)
+
+                actionResult.nextEvent?.let { sendEvent(it, headers) }
 
                 true
             }
@@ -95,19 +94,17 @@ class StateMachine<S : State, E : Event> private constructor(
     }
 
     private fun executeAutoTransitionIfNeeded(
-        machineId: String,
-        currentState: S,
+        sourceState: S,
         headers: Map<String, Any?>,
-        extendedState: MutableMap<String, Any?> = mutableMapOf(),
     ) {
-        val autoTransition = transitionTable.findAutoTransition(currentState)
+        val autoTransition = transitionTable.findAutoTransition(sourceState)
         if (autoTransition != null) {
-            log.debug("Executing auto transition: {} -> {}", currentState, autoTransition.target)
+            log.debug("Executing auto transition: {} -> {}", sourceState, autoTransition.target)
 
-            val context: StateContext<S, E> =
+            val context =
                 StateContext(
-                    machineId = machineId,
-                    sourceState = currentState,
+                    machineId = id,
+                    sourceState = sourceState,
                     targetState = autoTransition.target,
                     event = null,
                     headers = headers,
@@ -120,20 +117,21 @@ class StateMachine<S : State, E : Event> private constructor(
                 is ActionResult.Failure -> {
                     log.warn(
                         "Auto transition action failed: machineId={}, reason={}",
-                        machineId,
+                        id,
                         actionResult.reason,
                     )
                 }
 
                 is ActionResult.Success -> {
                     val newState = autoTransition.target
-                    repository?.save(machineId, newState)
-                    log.info("Auto transition: machineId={}, {} -> {}", machineId, currentState, newState)
+                    currentState = newState
+                    repository?.save(this)
+                    log.info("Auto transition: machineId={}, {} -> {}", id, sourceState, newState)
 
                     listener?.onStateChanged(
                         StateContext(
-                            machineId = machineId,
-                            sourceState = currentState,
+                            machineId = id,
+                            sourceState = sourceState,
                             targetState = newState,
                             event = null,
                             headers = headers,
@@ -141,66 +139,32 @@ class StateMachine<S : State, E : Event> private constructor(
                         ),
                     )
 
-                    executeAutoTransitionIfNeeded(machineId, newState, headers, extendedState)
+                    executeAutoTransitionIfNeeded(newState, headers)
                 }
             }
         }
     }
 
-    class Builder<S : State, E : Event> {
-        var initialState: S? = null
-        private val transitionTable = TransitionTable<S, E>()
-        var listener: StateChangedListener<S, E>? = null
-        var repository: StateMachineRepository<S>? = null
-
-        fun transition(block: TransitionBuilder<S, E>.() -> Unit) {
-            val builder = TransitionBuilder<S, E>()
-            builder.block()
-            transitionTable.add(builder.build())
-        }
-
-        fun build(): StateMachine<S, E> {
-            checkNotNull(initialState) { "Initial state must be set" }
-            return StateMachine(initialState!!, transitionTable, listener, repository)
-        }
-    }
-
-    class TransitionBuilder<S : State, E : Event> {
-        private var source: S? = null
-        private var target: S? = null
-        private var event: E? = null
-        private var action: Action<S, E>? = null
-
-        fun from(state: S) = apply { source = state }
-
-        fun to(state: S) = apply { target = state }
-
-        fun on(e: E) = apply { event = e }
-
-        fun action(a: Action<S, E>) = apply { action = a }
-
-        fun action(block: (StateContext<S, E>) -> ActionResult<E>) =
-            apply {
-                action =
-                    object : Action<S, E> {
-                        override fun execute(context: StateContext<S, E>): ActionResult<E> = block(context)
-                    }
-            }
-
-        fun build(): Transition<S, E> {
-            checkNotNull(source) { "Source state must be set" }
-            checkNotNull(target) { "Target state must be set" }
-            return Transition(source!!, target!!, event, action)
-        }
-    }
-
     companion object {
         private val log = LoggerFactory.getLogger(StateMachine::class.java)
-    }
-}
 
-fun <S : State, E : Event> stateMachine(block: StateMachine.Builder<S, E>.() -> Unit): StateMachine<S, E> {
-    val builder = StateMachine.Builder<S, E>()
-    builder.block()
-    return builder.build()
+        fun <S : Enum<S>> restore(
+            id: String,
+            currentState: S,
+            initialState: S,
+            extendedState: Map<String, Any?> = emptyMap(),
+            transitionTable: TransitionTable<S> = TransitionTable(),
+            listener: StateChangedListener<S>? = null,
+            repository: StateMachineRepository<S>? = null,
+        ): StateMachine<S> =
+            StateMachine(
+                id = id,
+                currentState = currentState,
+                initialState = initialState,
+                extendedState = extendedState.toMutableMap(),
+                transitionTable = transitionTable,
+                listener = listener,
+                repository = repository,
+            )
+    }
 }

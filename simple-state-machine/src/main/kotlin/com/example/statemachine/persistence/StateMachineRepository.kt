@@ -1,16 +1,13 @@
 package com.example.statemachine.persistence
 
-import com.example.statemachine.api.State
+import com.example.statemachine.core.StateMachine
 
-interface StateMachineRepository<S : State> {
-    fun findById(machineId: String): S?
+interface StateMachineRepository<S : Enum<S>> {
+    fun findById(id: String): StateMachine<S>?
 
-    fun save(
-        machineId: String,
-        state: S,
-    )
+    fun save(stateMachine: StateMachine<S>)
 
-    fun delete(machineId: String)
+    fun deleteById(id: String)
 
-    fun existsById(machineId: String): Boolean = findById(machineId) != null
+    fun existsById(id: String): Boolean = findById(id) != null
 }

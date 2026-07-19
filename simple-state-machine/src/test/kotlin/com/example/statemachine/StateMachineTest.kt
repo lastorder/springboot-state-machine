@@ -2,11 +2,10 @@ package com.example.statemachine
 
 import com.example.statemachine.api.Action
 import com.example.statemachine.api.ActionResult
-import com.example.statemachine.api.Event
-import com.example.statemachine.api.State
 import com.example.statemachine.api.StateChangedListener
 import com.example.statemachine.api.StateContext
-import com.example.statemachine.core.stateMachine
+import com.example.statemachine.core.StateMachineFactory
+import com.example.statemachine.core.stateMachineFactory
 import com.example.statemachine.persistence.InMemoryStateMachineRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -17,7 +16,7 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
 class StateMachineTest {
-    enum class TestState : State {
+    enum class TestState {
         INIT,
         S1,
         S2,
@@ -25,7 +24,7 @@ class StateMachineTest {
         END,
     }
 
-    enum class TestEvent : Event {
+    enum class TestEvent {
         E1,
         E2,
         E3,
@@ -44,8 +43,8 @@ class StateMachineTest {
     inner class BasicTransitions {
         @Test
         fun `should transition on valid event`() {
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -55,16 +54,17 @@ class StateMachineTest {
                     }
                 }
 
-            val result = sm.sendEvent("test", TestEvent.E1)
+            val sm = factory.create("test")
+            val result = sm.sendEvent(TestEvent.E1)
 
             assertTrue(result)
-            assertEquals(TestState.S1, sm.getCurrentState("test"))
+            assertEquals(TestState.S1, sm.state)
         }
 
         @Test
         fun `should reject invalid event`() {
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -74,16 +74,17 @@ class StateMachineTest {
                     }
                 }
 
-            val result = sm.sendEvent("test", TestEvent.E2)
+            val sm = factory.create("test")
+            val result = sm.sendEvent(TestEvent.E2)
 
             assertFalse(result)
-            assertEquals(TestState.INIT, sm.getCurrentState("test"))
+            assertEquals(TestState.INIT, sm.state)
         }
 
         @Test
         fun `should transition through multiple states`() {
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -103,14 +104,16 @@ class StateMachineTest {
                     }
                 }
 
-            assertTrue(sm.sendEvent("test", TestEvent.E1))
-            assertEquals(TestState.S1, sm.getCurrentState("test"))
+            val sm = factory.create("test")
 
-            assertTrue(sm.sendEvent("test", TestEvent.E2))
-            assertEquals(TestState.S2, sm.getCurrentState("test"))
+            assertTrue(sm.sendEvent(TestEvent.E1))
+            assertEquals(TestState.S1, sm.state)
 
-            assertTrue(sm.sendEvent("test", TestEvent.E3))
-            assertEquals(TestState.END, sm.getCurrentState("test"))
+            assertTrue(sm.sendEvent(TestEvent.E2))
+            assertEquals(TestState.S2, sm.state)
+
+            assertTrue(sm.sendEvent(TestEvent.E3))
+            assertEquals(TestState.END, sm.state)
         }
     }
 
@@ -120,8 +123,8 @@ class StateMachineTest {
         @Test
         fun `should execute action on transition`() {
             var executed = false
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -135,7 +138,8 @@ class StateMachineTest {
                     }
                 }
 
-            assertTrue(sm.sendEvent("test", TestEvent.E1))
+            val sm = factory.create("test")
+            assertTrue(sm.sendEvent(TestEvent.E1))
             assertTrue(executed)
         }
 
@@ -145,8 +149,8 @@ class StateMachineTest {
             var receivedSourceState: TestState? = null
             var receivedTargetState: TestState? = null
 
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -162,7 +166,7 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("order-123", TestEvent.E1)
+            factory.create("order-123").sendEvent(TestEvent.E1)
 
             assertEquals("order-123", receivedMachineId)
             assertEquals(TestState.INIT, receivedSourceState)
@@ -171,8 +175,8 @@ class StateMachineTest {
 
         @Test
         fun `should reject transition when action fails`() {
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -183,26 +187,27 @@ class StateMachineTest {
                     }
                 }
 
-            val result = sm.sendEvent("test", TestEvent.E1)
+            val sm = factory.create("test")
+            val result = sm.sendEvent(TestEvent.E1)
 
             assertFalse(result)
-            assertEquals(TestState.INIT, sm.getCurrentState("test"))
+            assertEquals(TestState.INIT, sm.state)
         }
 
         @Test
         fun `should support action as interface implementation`() {
-            class TestAction : Action<TestState, TestEvent> {
+            class TestAction : Action<TestState> {
                 var executed = false
 
-                override fun execute(context: StateContext<TestState, TestEvent>): ActionResult<TestEvent> {
+                override fun execute(context: StateContext<TestState>): ActionResult {
                     executed = true
                     return ActionResult.success()
                 }
             }
 
             val action = TestAction()
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -213,7 +218,7 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("test", TestEvent.E1)
+            factory.create("test").sendEvent(TestEvent.E1)
 
             assertTrue(action.executed)
         }
@@ -224,8 +229,8 @@ class StateMachineTest {
     inner class AutoTransitions {
         @Test
         fun `should execute auto transition after state change`() {
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -239,15 +244,16 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("test", TestEvent.E1)
+            val sm = factory.create("test")
+            sm.sendEvent(TestEvent.E1)
 
-            assertEquals(TestState.S2, sm.getCurrentState("test"))
+            assertEquals(TestState.S2, sm.state)
         }
 
         @Test
         fun `should execute chained auto transitions`() {
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -269,15 +275,16 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("test", TestEvent.E1)
+            val sm = factory.create("test")
+            sm.sendEvent(TestEvent.E1)
 
-            assertEquals(TestState.END, sm.getCurrentState("test"))
+            assertEquals(TestState.END, sm.state)
         }
 
         @Test
         fun `should stop auto transition chain when action fails`() {
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -296,9 +303,10 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("test", TestEvent.E1)
+            val sm = factory.create("test")
+            sm.sendEvent(TestEvent.E1)
 
-            assertEquals(TestState.S1, sm.getCurrentState("test"))
+            assertEquals(TestState.S1, sm.state)
         }
     }
 
@@ -308,15 +316,15 @@ class StateMachineTest {
         @Test
         fun `should call listener on successful transition`() {
             var listenerCalled = false
-            var receivedContext: StateContext<TestState, TestEvent>? = null
+            var receivedContext: StateContext<TestState>? = null
 
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     listener =
-                        object : StateChangedListener<TestState, TestEvent> {
-                            override fun onStateChanged(context: StateContext<TestState, TestEvent>) {
+                        object : StateChangedListener<TestState> {
+                            override fun onStateChanged(context: StateContext<TestState>) {
                                 listenerCalled = true
                                 receivedContext = context
                             }
@@ -328,7 +336,7 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("test", TestEvent.E1)
+            factory.create("test").sendEvent(TestEvent.E1)
 
             assertTrue(listenerCalled)
             assertEquals(TestState.INIT, receivedContext?.sourceState)
@@ -339,13 +347,13 @@ class StateMachineTest {
         fun `should NOT call listener when action fails`() {
             var listenerCalled = false
 
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     listener =
-                        object : StateChangedListener<TestState, TestEvent> {
-                            override fun onStateChanged(context: StateContext<TestState, TestEvent>) {
+                        object : StateChangedListener<TestState> {
+                            override fun onStateChanged(context: StateContext<TestState>) {
                                 listenerCalled = true
                             }
                         }
@@ -357,7 +365,7 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("test", TestEvent.E1)
+            factory.create("test").sendEvent(TestEvent.E1)
 
             assertFalse(listenerCalled)
         }
@@ -366,13 +374,13 @@ class StateMachineTest {
         fun `should call listener for each auto transition`() {
             val stateChanges = mutableListOf<Pair<TestState, TestState>>()
 
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     listener =
-                        object : StateChangedListener<TestState, TestEvent> {
-                            override fun onStateChanged(context: StateContext<TestState, TestEvent>) {
+                        object : StateChangedListener<TestState> {
+                            override fun onStateChanged(context: StateContext<TestState>) {
                                 stateChanges.add(context.sourceState to context.targetState)
                             }
                         }
@@ -387,7 +395,7 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("test", TestEvent.E1)
+            factory.create("test").sendEvent(TestEvent.E1)
 
             assertEquals(2, stateChanges.size)
             assertEquals(TestState.INIT to TestState.S1, stateChanges[0])
@@ -400,28 +408,21 @@ class StateMachineTest {
     inner class PersistenceTests {
         @Test
         fun `should restore state from repository`() {
-            repository.save("existing", TestState.S2)
+            val sm = factory.create("existing")
+            sm.sendEvent(TestEvent.E1)
+            assertEquals(TestState.S1, sm.state)
 
-            val sm =
-                stateMachine<TestState, TestEvent> {
-                    initialState = TestState.INIT
-                    repository = this@StateMachineTest.repository
-                    transition {
-                        from(TestState.S2)
-                        to(TestState.S3)
-                        on(TestEvent.E3)
-                    }
-                }
+            val restored = factory.create("existing")
+            assertEquals(TestState.S1, restored.state)
 
-            assertEquals(TestState.S2, sm.getCurrentState("existing"))
-            assertTrue(sm.sendEvent("existing", TestEvent.E3))
-            assertEquals(TestState.S3, sm.getCurrentState("existing"))
+            restored.sendEvent(TestEvent.E2)
+            assertEquals(TestState.S2, restored.state)
         }
 
         @Test
         fun `should use initial state when not in repository`() {
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -431,13 +432,14 @@ class StateMachineTest {
                     }
                 }
 
-            assertEquals(TestState.INIT, sm.getCurrentState("new-machine"))
+            val sm = factory.create("new-machine")
+            assertEquals(TestState.INIT, sm.state)
         }
 
         @Test
         fun `should handle multiple machines independently`() {
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -452,13 +454,30 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("machine-1", TestEvent.E1)
-            sm.sendEvent("machine-2", TestEvent.E1)
-            sm.sendEvent("machine-2", TestEvent.E2)
+            factory.create("machine-1").sendEvent(TestEvent.E1)
+            factory.create("machine-2").sendEvent(TestEvent.E1)
+            factory.create("machine-2").sendEvent(TestEvent.E2)
 
-            assertEquals(TestState.S1, sm.getCurrentState("machine-1"))
-            assertEquals(TestState.S2, sm.getCurrentState("machine-2"))
+            assertEquals(TestState.S1, factory.getState("machine-1"))
+            assertEquals(TestState.S2, factory.getState("machine-2"))
         }
+
+        private val factory: StateMachineFactory<TestState>
+            get() =
+                stateMachineFactory {
+                    initialState = TestState.INIT
+                    repository = this@StateMachineTest.repository
+                    transition {
+                        from(TestState.INIT)
+                        to(TestState.S1)
+                        on(TestEvent.E1)
+                    }
+                    transition {
+                        from(TestState.S1)
+                        to(TestState.S2)
+                        on(TestEvent.E2)
+                    }
+                }
     }
 
     @Nested
@@ -468,8 +487,8 @@ class StateMachineTest {
         fun `should pass headers to action`() {
             var receivedHeaders: Map<String, Any?>? = null
 
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -483,7 +502,7 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("test", TestEvent.E1, mapOf("orderId" to 123, "status" to "PENDING"))
+            factory.create("test").sendEvent(TestEvent.E1, mapOf("orderId" to 123, "status" to "PENDING"))
 
             assertEquals(mapOf("orderId" to 123, "status" to "PENDING"), receivedHeaders)
         }
@@ -492,8 +511,8 @@ class StateMachineTest {
         fun `should support extended state for passing data between actions`() {
             var valueInSecondAction: Any? = null
 
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -515,7 +534,7 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("test", TestEvent.E1)
+            factory.create("test").sendEvent(TestEvent.E1)
 
             assertEquals("value", valueInSecondAction)
         }
@@ -526,8 +545,8 @@ class StateMachineTest {
     inner class ResetTests {
         @Test
         fun `should reset state machine to initial state`() {
-            val sm =
-                stateMachine<TestState, TestEvent> {
+            val factory =
+                stateMachineFactory<TestState> {
                     initialState = TestState.INIT
                     repository = this@StateMachineTest.repository
                     transition {
@@ -537,11 +556,12 @@ class StateMachineTest {
                     }
                 }
 
-            sm.sendEvent("test", TestEvent.E1)
-            assertEquals(TestState.S1, sm.getCurrentState("test"))
+            val sm = factory.create("test")
+            sm.sendEvent(TestEvent.E1)
+            assertEquals(TestState.S1, sm.state)
 
-            sm.reset("test")
-            assertEquals(TestState.INIT, sm.getCurrentState("test"))
+            sm.reset()
+            assertEquals(TestState.INIT, factory.create("test").state)
         }
     }
 }

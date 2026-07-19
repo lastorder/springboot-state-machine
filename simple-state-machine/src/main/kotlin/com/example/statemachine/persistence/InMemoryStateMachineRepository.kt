@@ -1,25 +1,22 @@
 package com.example.statemachine.persistence
 
-import com.example.statemachine.api.State
+import com.example.statemachine.core.StateMachine
 import java.util.concurrent.ConcurrentHashMap
 
-class InMemoryStateMachineRepository<S : State> : StateMachineRepository<S> {
-    private val storage: ConcurrentHashMap<String, S> = ConcurrentHashMap()
+class InMemoryStateMachineRepository<S : Enum<S>> : StateMachineRepository<S> {
+    private val storage: ConcurrentHashMap<String, StateMachine<S>> = ConcurrentHashMap()
 
-    override fun findById(machineId: String): S? = storage[machineId]
+    override fun findById(id: String): StateMachine<S>? = storage[id]
 
-    override fun save(
-        machineId: String,
-        state: S,
-    ) {
-        storage[machineId] = state
+    override fun save(stateMachine: StateMachine<S>) {
+        storage[stateMachine.id] = stateMachine
     }
 
-    override fun delete(machineId: String) {
-        storage.remove(machineId)
+    override fun deleteById(id: String) {
+        storage.remove(id)
     }
 
-    override fun existsById(machineId: String): Boolean = storage.containsKey(machineId)
+    override fun existsById(id: String): Boolean = storage.containsKey(id)
 
     fun clear() {
         storage.clear()

@@ -1,12 +1,10 @@
 package com.example.statemachine
 
-import com.example.statemachine.api.Action
 import com.example.statemachine.api.ActionResult
-import com.example.statemachine.api.Event
-import com.example.statemachine.api.State
 import com.example.statemachine.api.StateChangedListener
 import com.example.statemachine.api.StateContext
-import com.example.statemachine.core.stateMachine
+import com.example.statemachine.core.StateMachineFactory
+import com.example.statemachine.core.stateMachineFactory
 import com.example.statemachine.persistence.InMemoryStateMachineRepository
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -17,7 +15,7 @@ import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
 class OrderStateMachineIntegrationTest {
-    enum class OrderStatus : State {
+    enum class OrderStatus {
         INIT,
         LOCAL_INITIALIZED,
         FACTORY_ORDER_SUBMITTED,
@@ -31,7 +29,7 @@ class OrderStateMachineIntegrationTest {
         CDOA_ACCEPT_FAILED,
     }
 
-    enum class OrderEvent : Event {
+    enum class OrderEvent {
         PR_APPROVED,
         VOM,
         DOM,
@@ -52,6 +50,7 @@ class OrderStateMachineIntegrationTest {
     )
 
     private lateinit var repository: InMemoryStateMachineRepository<OrderStatus>
+    private lateinit var factory: StateMachineFactory<OrderStatus>
     private lateinit var orders: MutableMap<String, OrderData>
     private lateinit var barriers: MutableMap<String, Set<String>>
 
@@ -60,6 +59,7 @@ class OrderStateMachineIntegrationTest {
         repository = InMemoryStateMachineRepository()
         orders = mutableMapOf()
         barriers = mutableMapOf()
+        factory = createOrderStateMachine()
     }
 
     @Nested
@@ -67,68 +67,62 @@ class OrderStateMachineIntegrationTest {
     inner class FullOrderLifecycleDE {
         @Test
         fun `should complete full DE market order flow`() {
-            val sm = createOrderStateMachine()
-
             val orderNo = "ORD-DE-001"
 
-            sm.sendEvent(orderNo, OrderEvent.PR_APPROVED, mapOf("market" to "DE"))
-            assertEquals(OrderStatus.FACTORY_ORDER_SUBMITTED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PR_APPROVED, mapOf("market" to "DE"))
+            assertEquals(OrderStatus.FACTORY_ORDER_SUBMITTED, factory.getState(orderNo))
 
-            sm.sendEvent(orderNo, OrderEvent.VOM)
-            sm.sendEvent(orderNo, OrderEvent.DOM)
-            assertEquals(OrderStatus.ORDER_INITIALIZE_SUCCEED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.VOM)
+            factory.create(orderNo).sendEvent(OrderEvent.DOM)
+            assertEquals(OrderStatus.ORDER_INITIALIZE_SUCCEED, factory.getState(orderNo))
 
-            sm.sendEvent(orderNo, OrderEvent.PURCHASE_REQUEST_ACCEPT)
-            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTING, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PURCHASE_REQUEST_ACCEPT)
+            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTING, factory.getState(orderNo))
             assertEquals(setOf("SVS", "PRICE", "FINANCE"), barriers[orderNo])
 
             passBarriers(orderNo, setOf("SVS", "PRICE", "FINANCE"))
-            sm.sendEvent(orderNo, OrderEvent.PURCHASE_REQUEST_ACCEPT_SUCCESS)
-            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PURCHASE_REQUEST_ACCEPT_SUCCESS)
+            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTED, factory.getState(orderNo))
 
-            sm.sendEvent(orderNo, OrderEvent.CDOA_ACCEPT)
-            assertEquals(OrderStatus.CDOA_ACCEPTING, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.CDOA_ACCEPT)
+            assertEquals(OrderStatus.CDOA_ACCEPTING, factory.getState(orderNo))
 
             passBarriers(orderNo, setOf("SVS", "PRICE", "FINANCE"))
-            sm.sendEvent(orderNo, OrderEvent.CDOA_ACCEPT_SUCCESS)
-            assertEquals(OrderStatus.CDOA_ACCEPTED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.CDOA_ACCEPT_SUCCESS)
+            assertEquals(OrderStatus.CDOA_ACCEPTED, factory.getState(orderNo))
         }
 
         @Test
         fun `should handle VOM_FAILED scenario`() {
-            val sm = createOrderStateMachine()
-
             val orderNo = "ORD-DE-002"
 
-            sm.sendEvent(orderNo, OrderEvent.PR_APPROVED, mapOf("market" to "DE"))
-            assertEquals(OrderStatus.FACTORY_ORDER_SUBMITTED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PR_APPROVED, mapOf("market" to "DE"))
+            assertEquals(OrderStatus.FACTORY_ORDER_SUBMITTED, factory.getState(orderNo))
 
-            sm.sendEvent(orderNo, OrderEvent.VOM_FAILED)
-            assertEquals(OrderStatus.ORDER_INITIALIZE_FAILED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.VOM_FAILED)
+            assertEquals(OrderStatus.ORDER_INITIALIZE_FAILED, factory.getState(orderNo))
 
-            assertFalse(sm.sendEvent(orderNo, OrderEvent.VOM))
-            assertEquals(OrderStatus.ORDER_INITIALIZE_FAILED, sm.getCurrentState(orderNo))
+            assertFalse(factory.create(orderNo).sendEvent(OrderEvent.VOM))
+            assertEquals(OrderStatus.ORDER_INITIALIZE_FAILED, factory.getState(orderNo))
         }
 
         @Test
         fun `should handle PR_ACCEPT failed and retry`() {
-            val sm = createOrderStateMachine()
-
             val orderNo = "ORD-DE-003"
 
-            sm.sendEvent(orderNo, OrderEvent.PR_APPROVED, mapOf("market" to "DE"))
-            sm.sendEvent(orderNo, OrderEvent.VOM)
-            sm.sendEvent(orderNo, OrderEvent.DOM)
-            assertEquals(OrderStatus.ORDER_INITIALIZE_SUCCEED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PR_APPROVED, mapOf("market" to "DE"))
+            factory.create(orderNo).sendEvent(OrderEvent.VOM)
+            factory.create(orderNo).sendEvent(OrderEvent.DOM)
+            assertEquals(OrderStatus.ORDER_INITIALIZE_SUCCEED, factory.getState(orderNo))
 
-            sm.sendEvent(orderNo, OrderEvent.PURCHASE_REQUEST_ACCEPT)
-            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTING, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PURCHASE_REQUEST_ACCEPT)
+            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTING, factory.getState(orderNo))
 
-            sm.sendEvent(orderNo, OrderEvent.PURCHASE_REQUEST_ACCEPT_FAILED)
-            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PURCHASE_REQUEST_ACCEPT_FAILED)
+            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPT_FAILED, factory.getState(orderNo))
 
-            assertTrue(sm.sendEvent(orderNo, OrderEvent.PURCHASE_REQUEST_ACCEPT_RETRY))
-            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTING, sm.getCurrentState(orderNo))
+            assertTrue(factory.create(orderNo).sendEvent(OrderEvent.PURCHASE_REQUEST_ACCEPT_RETRY))
+            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTING, factory.getState(orderNo))
         }
     }
 
@@ -137,19 +131,17 @@ class OrderStateMachineIntegrationTest {
     inner class ITMarketTests {
         @Test
         fun `should handle IT market with 6 barriers`() {
-            val sm = createOrderStateMachine()
-
             val orderNo = "ORD-IT-001"
 
-            sm.sendEvent(orderNo, OrderEvent.PR_APPROVED, mapOf("market" to "IT"))
-            assertEquals(OrderStatus.FACTORY_ORDER_SUBMITTED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PR_APPROVED, mapOf("market" to "IT"))
+            assertEquals(OrderStatus.FACTORY_ORDER_SUBMITTED, factory.getState(orderNo))
 
-            sm.sendEvent(orderNo, OrderEvent.VOM)
-            sm.sendEvent(orderNo, OrderEvent.DOM)
-            assertEquals(OrderStatus.ORDER_INITIALIZE_SUCCEED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.VOM)
+            factory.create(orderNo).sendEvent(OrderEvent.DOM)
+            assertEquals(OrderStatus.ORDER_INITIALIZE_SUCCEED, factory.getState(orderNo))
 
-            sm.sendEvent(orderNo, OrderEvent.PURCHASE_REQUEST_ACCEPT)
-            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTING, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PURCHASE_REQUEST_ACCEPT)
+            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTING, factory.getState(orderNo))
 
             val itBarriers =
                 setOf(
@@ -163,8 +155,8 @@ class OrderStateMachineIntegrationTest {
             assertEquals(itBarriers, barriers[orderNo])
 
             passBarriers(orderNo, itBarriers)
-            sm.sendEvent(orderNo, OrderEvent.PURCHASE_REQUEST_ACCEPT_SUCCESS)
-            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PURCHASE_REQUEST_ACCEPT_SUCCESS)
+            assertEquals(OrderStatus.PURCHASE_REQUEST_ACCEPTED, factory.getState(orderNo))
         }
     }
 
@@ -173,40 +165,36 @@ class OrderStateMachineIntegrationTest {
     inner class StateTransitionValidation {
         @Test
         fun `should reject invalid event for current state`() {
-            val sm = createOrderStateMachine()
-
             val orderNo = "ORD-001"
 
-            assertFalse(sm.sendEvent(orderNo, OrderEvent.VOM))
-            assertEquals(OrderStatus.INIT, sm.getCurrentState(orderNo))
+            assertFalse(factory.create(orderNo).sendEvent(OrderEvent.VOM))
+            assertEquals(OrderStatus.INIT, factory.getState(orderNo))
 
-            assertFalse(sm.sendEvent(orderNo, OrderEvent.CDOA_ACCEPT))
-            assertEquals(OrderStatus.INIT, sm.getCurrentState(orderNo))
+            assertFalse(factory.create(orderNo).sendEvent(OrderEvent.CDOA_ACCEPT))
+            assertEquals(OrderStatus.INIT, factory.getState(orderNo))
         }
 
         @Test
         fun `should reject event after terminal state`() {
-            val sm = createOrderStateMachine()
-
             val orderNo = "ORD-001"
 
-            sm.sendEvent(orderNo, OrderEvent.PR_APPROVED, mapOf("market" to "DE"))
-            sm.sendEvent(orderNo, OrderEvent.VOM_FAILED)
-            assertEquals(OrderStatus.ORDER_INITIALIZE_FAILED, sm.getCurrentState(orderNo))
+            factory.create(orderNo).sendEvent(OrderEvent.PR_APPROVED, mapOf("market" to "DE"))
+            factory.create(orderNo).sendEvent(OrderEvent.VOM_FAILED)
+            assertEquals(OrderStatus.ORDER_INITIALIZE_FAILED, factory.getState(orderNo))
 
-            assertFalse(sm.sendEvent(orderNo, OrderEvent.VOM))
-            assertFalse(sm.sendEvent(orderNo, OrderEvent.PURCHASE_REQUEST_ACCEPT))
+            assertFalse(factory.create(orderNo).sendEvent(OrderEvent.VOM))
+            assertFalse(factory.create(orderNo).sendEvent(OrderEvent.PURCHASE_REQUEST_ACCEPT))
         }
     }
 
     private fun createOrderStateMachine() =
-        stateMachine<OrderStatus, OrderEvent> {
+        stateMachineFactory<OrderStatus> {
             initialState = OrderStatus.INIT
             repository = this@OrderStateMachineIntegrationTest.repository
 
             listener =
-                object : StateChangedListener<OrderStatus, OrderEvent> {
-                    override fun onStateChanged(context: StateContext<OrderStatus, OrderEvent>) {
+                object : StateChangedListener<OrderStatus> {
+                    override fun onStateChanged(context: StateContext<OrderStatus>) {
                         orders[context.machineId]?.status = context.targetState
                     }
                 }

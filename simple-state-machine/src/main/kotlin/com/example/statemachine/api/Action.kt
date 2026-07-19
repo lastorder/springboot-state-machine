@@ -1,5 +1,5 @@
 package com.example.statemachine.api
 
-interface Action<S : State, E : Event> {
-    fun execute(context: StateContext<S, E>): ActionResult<E>
+interface Action<S : Enum<S>> {
+    fun execute(context: StateContext<S>): ActionResult
 }

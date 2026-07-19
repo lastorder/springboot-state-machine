@@ -1,13 +1,10 @@
 package com.example.statemachine.core
 
-import com.example.statemachine.api.Event
-import com.example.statemachine.api.State
+class TransitionTable<S : Enum<S>> {
+    private val eventTransitions: MutableMap<Pair<S, Enum<*>>, Transition<S>> = mutableMapOf()
+    private val autoTransitions: MutableMap<S, Transition<S>> = mutableMapOf()
 
-class TransitionTable<S : State, E : Event> {
-    private val eventTransitions: MutableMap<Pair<S, E>, Transition<S, E>> = mutableMapOf()
-    private val autoTransitions: MutableMap<S, Transition<S, E>> = mutableMapOf()
-
-    fun add(transition: Transition<S, E>) {
+    fun add(transition: Transition<S>) {
         if (transition.event != null) {
             eventTransitions[transition.source to transition.event] = transition
         } else {
@@ -17,11 +14,11 @@ class TransitionTable<S : State, E : Event> {
 
     fun findByEvent(
         source: S,
-        event: E,
-    ): Transition<S, E>? = eventTransitions[source to event]
+        event: Enum<*>,
+    ): Transition<S>? = eventTransitions[source to event]
 
-    fun findAutoTransition(source: S): Transition<S, E>? = autoTransitions[source]
+    fun findAutoTransition(source: S): Transition<S>? = autoTransitions[source]
 
-    fun allTransitions(): List<Transition<S, E>> =
+    fun allTransitions(): List<Transition<S>> =
         eventTransitions.values.toList() + autoTransitions.values.toList()
 }

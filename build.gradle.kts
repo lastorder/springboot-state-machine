@@ -52,14 +52,12 @@ val integrationTestRuntimeOnly by configurations.getting {
 }
 
 dependencies {
+    implementation(project(":simple-state-machine"))
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.kafka:spring-kafka")
-
-    implementation("org.springframework.statemachine:spring-statemachine-starter:${property("springStateMachineVersion")}")
-    implementation("org.springframework.statemachine:spring-statemachine-data-jpa:${property("springStateMachineVersion")}")
 
     implementation("com.github.kagkarlsson:db-scheduler-spring-boot-starter:${property("dbSchedulerVersion")}")
 
@@ -77,7 +75,6 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("io.mockk:mockk:1.14.2")
     testImplementation("com.ninja-squad:springmockk:4.0.2")
-    testImplementation("org.springframework.statemachine:spring-statemachine-test:${property("springStateMachineVersion")}")
 
     // Integration test dependencies (Testcontainers)
     "integrationTestImplementation"("org.springframework.boot:spring-boot-testcontainers")
