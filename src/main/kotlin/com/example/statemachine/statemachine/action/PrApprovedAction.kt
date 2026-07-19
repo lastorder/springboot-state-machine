@@ -7,7 +7,6 @@ import com.example.statemachine.domain.enums.Market
 import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.domain.model.Order
 import com.example.statemachine.domain.repository.OrderRepository
-import com.example.statemachine.infrastructure.persistence.StateMachineJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
@@ -15,7 +14,6 @@ import java.math.BigDecimal
 @Component
 class PrApprovedAction(
     private val orderRepository: OrderRepository,
-    private val stateMachineJpaRepository: StateMachineJpaRepository,
 ) : Action<OrderStatus> {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -28,26 +26,26 @@ class PrApprovedAction(
         val quantity = (context.headers["quantity"] as? Number)?.toInt()
         val amount = extractAmount(context.headers["amount"])
         val marketStr = context.headers["market"] as? String
-        val market =
-            marketStr?.let {
-                try {
-                    Market.valueOf(it)
-                } catch (e: IllegalArgumentException) {
-                    null
-                }
-            }
 
-        log.info("Headers: orderNo=$orderNo, productId=$productId, quantity=$quantity, amount=$amount, market=$market")
+        log.info("Headers: orderNo=$orderNo, productId=$productId, quantity=$quantity, amount=$amount, market=$marketStr")
 
         if (orderNo == null) {
             log.error("Missing required header: orderNo")
-            return ActionResult.failure("Missing required header: orderNo")
+            return ActionResult.businessError("Missing required header: orderNo")
         }
 
-        if (market == null) {
-            log.error("Missing or invalid market header: $marketStr")
-            return ActionResult.failure("Missing or invalid market header: $marketStr")
+        if (marketStr == null) {
+            log.error("Missing market header")
+            return ActionResult.businessError("Missing market header")
         }
+
+        val market =
+            try {
+                Market.valueOf(marketStr)
+            } catch (e: IllegalArgumentException) {
+                log.error("Invalid market value: $marketStr")
+                return ActionResult.businessError("Invalid market value: $marketStr")
+            }
 
         log.info("Processing PR_APPROVED event: orderNo={}", orderNo)
 
@@ -55,12 +53,10 @@ class PrApprovedAction(
             val existingOrder = orderRepository.findByOrderNo(orderNo)
 
             if (existingOrder != null) {
-                val currentStatus = getCurrentState(orderNo)
+                log.info("Order already exists: id=${existingOrder.id}, orderNo=$orderNo, status=${existingOrder.status}")
 
-                log.info("Order already exists: id=${existingOrder.id}, orderNo=$orderNo, currentStatus=$currentStatus")
-
-                if (currentStatus != null && currentStatus != OrderStatus.INIT) {
-                    log.info("Order already processed, skipping: orderNo=$orderNo, status=$currentStatus")
+                if (existingOrder.status != OrderStatus.INIT) {
+                    log.info("Order already processed, skipping: orderNo=$orderNo, status=${existingOrder.status}")
                     return ActionResult.success()
                 }
 
@@ -83,13 +79,8 @@ class PrApprovedAction(
             ActionResult.success()
         } catch (e: Exception) {
             log.error("Error in PrApprovedAction: ${e.message}", e)
-            ActionResult.failure("Error in PrApprovedAction: ${e.message}")
+            ActionResult.technicalError("Error in PrApprovedAction: ${e.message}", e)
         }
-    }
-
-    private fun getCurrentState(orderNo: String): OrderStatus? {
-        val entity = stateMachineJpaRepository.findById(orderNo).orElse(null)
-        return entity?.let { OrderStatus.valueOf(it.state) }
     }
 
     private fun extractAmount(value: Any?): BigDecimal? =

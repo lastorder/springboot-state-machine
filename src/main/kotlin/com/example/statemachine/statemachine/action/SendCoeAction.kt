@@ -19,12 +19,17 @@ class SendCoeAction(
     override fun execute(context: StateContext<OrderStatus>): ActionResult {
         val orderNo = OrderActionUtils.extractOrderNo(context)
 
-        log.info("Sending COE event for orderNo={}", orderNo)
-        coeProducer.sendCoeEventByOrderNo(orderNo)
+        return try {
+            log.info("Sending COE event for orderNo={}", orderNo)
+            coeProducer.sendCoeEventByOrderNo(orderNo)
 
-        log.info("Initializing barrier aggregate for orderNo={}", orderNo)
-        orderInitBarrierAggregate.initialize(orderNo)
+            log.info("Initializing barrier aggregate for orderNo={}", orderNo)
+            orderInitBarrierAggregate.initialize(orderNo)
 
-        return ActionResult.success()
+            ActionResult.success()
+        } catch (e: Exception) {
+            log.error("Failed to send COE event: orderNo={}", orderNo, e)
+            ActionResult.technicalError("Failed to send COE event: ${e.message}", e)
+        }
     }
 }

@@ -4,34 +4,26 @@ import com.example.statemachine.api.Action
 import com.example.statemachine.api.ActionResult
 import com.example.statemachine.api.StateChangedListener
 import com.example.statemachine.api.StateContext
-import com.example.statemachine.persistence.StateMachineRepository
 import org.slf4j.LoggerFactory
 
 class StateMachineFactory<S : Enum<S>>(
     private val initialState: S,
     private val transitionTable: TransitionTable<S>,
     private val listener: StateChangedListener<S>?,
-    private val repository: StateMachineRepository<S>,
 ) {
-    fun create(id: String): StateMachine<S> {
-        val existing = repository.findById(id)
-        return existing ?: StateMachine.restore(
+    fun create(id: String): StateMachine<S> =
+        StateMachine.restore(
             id = id,
             currentState = initialState,
             initialState = initialState,
             transitionTable = transitionTable,
             listener = listener,
-            repository = repository,
         )
-    }
-
-    fun getState(id: String): S = repository.findById(id)?.state ?: initialState
 
     class Builder<S : Enum<S>> {
         var initialState: S? = null
         private val transitionTable = TransitionTable<S>()
         var listener: StateChangedListener<S>? = null
-        var repository: StateMachineRepository<S>? = null
 
         fun transition(block: TransitionBuilder<S>.() -> Unit) {
             val builder = TransitionBuilder<S>()
@@ -41,8 +33,7 @@ class StateMachineFactory<S : Enum<S>>(
 
         fun build(): StateMachineFactory<S> {
             checkNotNull(initialState) { "Initial state must be set" }
-            checkNotNull(repository) { "Repository must be set" }
-            return StateMachineFactory(initialState!!, transitionTable, listener, repository!!)
+            return StateMachineFactory(initialState!!, transitionTable, listener)
         }
     }
 

@@ -33,7 +33,23 @@ class StateMachineListener(
 
         log.info("State changed: orderNo={}, {} -> {}", orderNo, sourceState, targetState)
 
-        syncOrderStatus(orderNo, targetState, sourceState, event, headers)
+        transactionTemplate.executeWithoutResult {
+            syncOrderStatus(orderNo, targetState, sourceState, event, headers)
+        }
+
+        try {
+            orderEventProducer.sendStatusChangeEvent(
+                OrderStatusChangeEvent(
+                    orderId = orderNo.hashCode().toLong(),
+                    fromStatus = sourceState,
+                    toStatus = targetState,
+                    event = event as? com.example.statemachine.domain.enums.OrderEvent,
+                    timestamp = Instant.now(),
+                ),
+            )
+        } catch (e: Exception) {
+            log.error("Failed to send status change event: orderNo={}", orderNo, e)
+        }
     }
 
     private fun syncOrderStatus(
@@ -47,30 +63,14 @@ class StateMachineListener(
             return
         }
 
-        transactionTemplate.executeWithoutResult {
-            val updated = orderJpaRepository.updateStatusByOrderNo(orderNo, newStatus)
-            if (updated > 0) {
-                log.info("Synced order status: orderNo={}, status={}", orderNo, newStatus)
-            } else {
-                log.warn("Order not found for status sync: orderNo={}", orderNo)
-            }
-
-            saveHistory(orderNo, fromStatus, newStatus, event, headers)
-
-            try {
-                orderEventProducer.sendStatusChangeEvent(
-                    OrderStatusChangeEvent(
-                        orderId = orderNo.hashCode().toLong(),
-                        fromStatus = fromStatus,
-                        toStatus = newStatus,
-                        event = event as? com.example.statemachine.domain.enums.OrderEvent,
-                        timestamp = Instant.now(),
-                    ),
-                )
-            } catch (e: Exception) {
-                log.error("Failed to send status change event: orderNo={}", orderNo, e)
-            }
+        val updated = orderJpaRepository.updateStatusByOrderNo(orderNo, newStatus)
+        if (updated > 0) {
+            log.info("Synced order status: orderNo={}, status={}", orderNo, newStatus)
+        } else {
+            log.warn("Order not found for status sync: orderNo={}", orderNo)
         }
+
+        saveHistory(orderNo, fromStatus, newStatus, event, headers)
     }
 
     private fun saveHistory(
@@ -93,6 +93,7 @@ class StateMachineListener(
             log.debug("Saved state machine history: machineId={}, {} -> {}", machineId, fromState, toState)
         } catch (e: Exception) {
             log.error("Failed to save state machine history: machineId={}", machineId, e)
+            throw e
         }
     }
 }

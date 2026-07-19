@@ -99,12 +99,36 @@ CDOA_ACCEPTED
 | DE | SVS, PRICE, FINANCE |
 | IT | SVS, BODYBUILDER, CONTRACT_ROLES, PRICING, PAYMENT_SPLIT, FINANCING_BLUEPRINT |
 
+### Transaction & Retry Architecture
+
+```
+OrderStateMachineTaskSpec.executeWithLock() [无事务]
+  ├── 获取订单状态（只读）
+  ├── StateMachine.sendEvent()
+  │   └── Actions.execute() ← 无事务，允许耗时操作
+  └── StateMachineListener.onStateChanged() [Transaction]
+      ├── 更新 orders.status
+      └── 保存 state_machine_history
+```
+
+**重试控制**:
+
+| 场景 | ActionResult | StateChangeResult.failureReason | 重试 |
+|------|-------------|--------------------------------|------|
+| 分布式锁获取失败 | - | - | ✅ `LockingTaskSpec` 返回 `retryable=true` |
+| Event 不匹配 transition | - | `INVALID_TRANSITION` | ❌ |
+| Action 参数校验失败 | `BusinessError` | `BUSINESS_ERROR` | ❌ |
+| Action 数据库失败 | `TechnicalError` | `TECHNICAL_ERROR` | ✅ |
+| Action HTTP/Kafka 失败 | `TechnicalError` | `TECHNICAL_ERROR` | ✅ |
+| Listener 持久化失败 | - | 抛异常给 TaskSpec | ✅ |
+
 ### Key Design Patterns
 
 1. **BarrierAggregate** - Single-table JSONB with optimistic locking
 2. **MarketAwareBarrierAggregate** - Market-specific barrier configuration
 3. **OrderActionUtils** - Shared utility for extracting orderNo from StateContext
 4. **KafkaTopics** - Centralized Kafka topic constants
+5. **ActionResult** - BusinessError / TechnicalError for retry control
 
 ## Code Quality
 
@@ -128,6 +152,24 @@ class MyBarrierAggregate(
     override fun onAllBarriersPassed(aggregateKey: String) {
         stateMachineService.sendEvent(aggregateKey, MyEvent.SUCCESS)
     }
+}
+```
+
+### Action Error Handling
+Use `BusinessError` for validation failures (no retry), `TechnicalError` for infrastructure failures (retry):
+
+```kotlin
+// 参数校验失败 → BusinessError（不重试）
+if (orderNo == null) {
+    return ActionResult.businessError("Missing orderNo")
+}
+
+// 基础设施故障 → TechnicalError（应该重试）
+return try {
+    orderRepository.save(order)
+    ActionResult.success()
+} catch (e: Exception) {
+    ActionResult.technicalError("Database error: ${e.message}", e)
 }
 ```
 

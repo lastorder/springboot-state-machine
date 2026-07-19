@@ -1,8 +1,10 @@
 package com.example.statemachine.application.task
 
-import com.example.statemachine.core.StateMachineFactory
-import com.example.statemachine.domain.enums.OrderEvent
+import com.example.statemachine.api.StateChangedListener
+import com.example.statemachine.core.StateMachine
+import com.example.statemachine.core.TransitionTable
 import com.example.statemachine.domain.enums.OrderStatus
+import com.example.statemachine.infrastructure.persistence.repository.OrderJpaRepository
 import com.example.statemachine.task.spec.LockingTaskSpec
 import com.example.statemachine.task.spec.RetryStrategy
 import com.example.statemachine.task.spec.TaskContext
@@ -14,7 +16,9 @@ import java.time.Duration
 
 @Component
 class OrderStateMachineTaskSpec(
-    private val stateMachineFactory: StateMachineFactory<OrderStatus>,
+    private val orderJpaRepository: OrderJpaRepository,
+    private val transitionTable: TransitionTable<OrderStatus>,
+    private val stateMachineListener: StateChangedListener<OrderStatus>,
     lockProvider: LockProvider,
 ) : LockingTaskSpec<OrderEventPayload>(
         lockProvider = lockProvider,
@@ -30,44 +34,34 @@ class OrderStateMachineTaskSpec(
         val payload = context.payload
         log.info("Processing order event: orderNo={}, event={}", payload.orderNo, payload.event)
 
-        return try {
-            val accepted =
-                sendEvent(
-                    payload.orderNo,
-                    payload.event,
-                    payload.headers.filterValues { it != null }.mapValues { it.value!! },
-                )
+        val order = orderJpaRepository.findByOrderNo(payload.orderNo)
+        val currentState = order?.status ?: OrderStatus.INIT
 
-            if (accepted) {
+        val stateMachine =
+            StateMachine.restore(
+                id = payload.orderNo,
+                currentState = currentState,
+                initialState = OrderStatus.INIT,
+                transitionTable = transitionTable,
+                listener = stateMachineListener,
+            )
+
+        val headers = payload.headers.filterValues { it != null }.mapValues { it.value!! }
+        val result = stateMachine.sendEvent(payload.event, headers + ("orderNo" to payload.orderNo))
+
+        return when {
+            result.accepted -> {
                 log.info("Event {} accepted for order {}", payload.event, payload.orderNo)
-            } else {
-                log.warn("Event {} rejected for order {}, invalid transition", payload.event, payload.orderNo)
+                TaskResult.success("Event ${payload.event} processed")
             }
-            TaskResult.success("Event ${payload.event} processed, accepted=$accepted")
-        } catch (e: Exception) {
-            log.error("State machine error for order {}", payload.orderNo, e)
-            TaskResult.fail("State machine error: ${e.message}", e)
-        }
-    }
-
-    fun sendEvent(
-        orderNo: String,
-        event: OrderEvent,
-        headers: Map<String, Any> = emptyMap(),
-    ): Boolean {
-        log.debug("Sending event: orderNo=$orderNo, event=$event")
-
-        return try {
-            val stateMachine = stateMachineFactory.create(orderNo)
-            val result =
-                stateMachine.sendEvent(
-                    event = event,
-                    headers = headers + ("orderNo" to orderNo),
-                )
-            result
-        } catch (e: Exception) {
-            log.error("Error sending event: orderNo=$orderNo, event=$event", e)
-            false
+            result.shouldRetry() -> {
+                log.error("Event {} failed with technical error for order {}", payload.event, payload.orderNo)
+                TaskResult.fail("Technical error", retryable = true)
+            }
+            else -> {
+                log.warn("Event {} rejected for order {}, reason={}", payload.event, payload.orderNo, result.failureReason)
+                TaskResult.failWithoutRetry("Event rejected: ${result.failureReason}")
+            }
         }
     }
 

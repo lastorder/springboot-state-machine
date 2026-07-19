@@ -22,15 +22,19 @@ abstract class AbstractBroadcastAction(
             orderJpaRepository.findByOrderNo(orderNo)
                 ?: run {
                     log.error("Order not found: orderNo=$orderNo")
-                    return ActionResult.failure("Order not found: $orderNo")
+                    return ActionResult.businessError("Order not found: $orderNo")
                 }
 
         log.info("${actionName()}: orderNo=$orderNo, market=${order.market}")
 
-        barrierAggregate.initialize(orderNo, order.market)
-        broadcast(orderNo, order.market)
-
-        return ActionResult.success()
+        return try {
+            barrierAggregate.initialize(orderNo, order.market)
+            broadcast(orderNo, order.market)
+            ActionResult.success()
+        } catch (e: Exception) {
+            log.error("Failed to ${actionName()}: orderNo=$orderNo", e)
+            ActionResult.technicalError("${actionName()} failed: ${e.message}", e)
+        }
     }
 
     protected abstract fun actionName(): String

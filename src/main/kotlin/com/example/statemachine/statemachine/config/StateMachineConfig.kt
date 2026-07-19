@@ -5,8 +5,6 @@ import com.example.statemachine.core.Transition
 import com.example.statemachine.core.TransitionTable
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.domain.enums.OrderStatus
-import com.example.statemachine.infrastructure.persistence.OrderStateMachineRepository
-import com.example.statemachine.infrastructure.persistence.StateMachineJpaRepository
 import com.example.statemachine.statemachine.action.BroadcastCdoaAcceptAction
 import com.example.statemachine.statemachine.action.BroadcastPurchaseRequestAcceptAction
 import com.example.statemachine.statemachine.action.BroadcastPurchaseRequestAcceptRetryAction
@@ -122,27 +120,13 @@ class StateMachineConfig {
         }
 
     @Bean
-    fun stateMachineRepository(
-        jpaRepository: StateMachineJpaRepository,
-        transitionTable: TransitionTable<OrderStatus>,
-        stateMachineListener: StateMachineListener,
-    ): OrderStateMachineRepository =
-        OrderStateMachineRepository(
-            jpaRepository = jpaRepository,
-            transitionTable = transitionTable,
-            listener = stateMachineListener,
-        )
-
-    @Bean
     fun stateMachineFactory(
         transitionTable: TransitionTable<OrderStatus>,
-        repository: OrderStateMachineRepository,
         stateMachineListener: StateMachineListener,
     ): StateMachineFactory<OrderStatus> =
         StateMachineFactory(
             initialState = OrderStatus.INIT,
             transitionTable = transitionTable,
             listener = stateMachineListener,
-            repository = repository,
         )
 }

@@ -66,8 +66,13 @@ class OrderController(
     fun sendEvent(
         @RequestParam orderNo: String,
         @RequestParam event: OrderEvent,
+        @RequestParam(required = false) market: String?,
     ): ResponseEntity<Map<String, Any>> {
-        orderCommandService.submitOrderEvent(orderNo, event)
+        val headers =
+            mutableMapOf<String, Any?>().apply {
+                market?.let { put("market", it) }
+            }
+        orderCommandService.submitOrderEvent(orderNo, event, headers)
         return ResponseEntity.accepted().body(
             mapOf(
                 "orderNo" to orderNo,

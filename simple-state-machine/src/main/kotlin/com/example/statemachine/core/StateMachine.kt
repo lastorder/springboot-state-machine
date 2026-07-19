@@ -2,9 +2,9 @@ package com.example.statemachine.core
 
 import com.example.statemachine.api.Action
 import com.example.statemachine.api.ActionResult
+import com.example.statemachine.api.StateChangeResult
 import com.example.statemachine.api.StateChangedListener
 import com.example.statemachine.api.StateContext
-import com.example.statemachine.persistence.StateMachineRepository
 import org.slf4j.LoggerFactory
 
 class StateMachine<S : Enum<S>> internal constructor(
@@ -14,29 +14,23 @@ class StateMachine<S : Enum<S>> internal constructor(
     private val extendedState: MutableMap<String, Any?>,
     private val transitionTable: TransitionTable<S>,
     private val listener: StateChangedListener<S>?,
-    private val repository: StateMachineRepository<S>?,
 ) {
     val state: S get() = currentState
 
     fun sendEvent(
         event: Enum<*>,
         headers: Map<String, Any?> = emptyMap(),
-    ): Boolean {
+    ): StateChangeResult<S> {
         log.debug("Sending event: machineId={}, event={}", id, event)
         log.debug("Current state: {}", currentState)
 
         val transition = transitionTable.findByEvent(currentState, event)
         if (transition == null) {
             log.warn("No transition found for state={}, event={}", currentState, event)
-            return false
+            return StateChangeResult.invalidTransition(currentState, event)
         }
 
         return executeTransition(currentState, transition, event, headers)
-    }
-
-    fun reset() {
-        repository?.deleteById(id)
-        log.debug("Reset state machine: machineId={}", id)
     }
 
     private fun executeTransition(
@@ -44,7 +38,7 @@ class StateMachine<S : Enum<S>> internal constructor(
         transition: Transition<S>,
         event: Enum<*>,
         headers: Map<String, Any?>,
-    ): Boolean {
+    ): StateChangeResult<S> {
         val context =
             StateContext(
                 machineId = id,
@@ -58,25 +52,35 @@ class StateMachine<S : Enum<S>> internal constructor(
         val actionResult = transition.action?.execute(context) ?: ActionResult.success()
 
         return when (actionResult) {
-            is ActionResult.Failure -> {
+            is ActionResult.Failure.BusinessError -> {
                 log.warn(
-                    "Action failed: machineId={}, reason={}",
+                    "Action failed (business error): machineId={}, reason={}",
                     id,
                     actionResult.reason,
                 )
-                false
+                StateChangeResult.businessError(sourceState, event)
+            }
+
+            is ActionResult.Failure.TechnicalError -> {
+                log.error(
+                    "Action failed (technical error): machineId={}, reason={}",
+                    id,
+                    actionResult.reason,
+                    actionResult.cause,
+                )
+                StateChangeResult.technicalError(sourceState, event)
             }
 
             is ActionResult.Success -> {
                 val newState = transition.target
+                val previousState = currentState
                 currentState = newState
-                repository?.save(this)
-                log.info("State changed: machineId={}, {} -> {}", id, sourceState, newState)
+                log.info("State changed: machineId={}, {} -> {}", id, previousState, newState)
 
                 listener?.onStateChanged(
                     StateContext(
                         machineId = id,
-                        sourceState = sourceState,
+                        sourceState = previousState,
                         targetState = newState,
                         event = event,
                         headers = headers,
@@ -87,8 +91,12 @@ class StateMachine<S : Enum<S>> internal constructor(
                 executeAutoTransitionIfNeeded(newState, headers)
 
                 actionResult.nextEvent?.let { sendEvent(it, headers) }
-
-                true
+                    ?: StateChangeResult(
+                        accepted = true,
+                        previousState = previousState,
+                        newState = currentState,
+                        event = event,
+                    )
             }
         }
     }
@@ -114,24 +122,33 @@ class StateMachine<S : Enum<S>> internal constructor(
             val actionResult = autoTransition.action?.execute(context) ?: ActionResult.success()
 
             when (actionResult) {
-                is ActionResult.Failure -> {
+                is ActionResult.Failure.BusinessError -> {
                     log.warn(
-                        "Auto transition action failed: machineId={}, reason={}",
+                        "Auto transition action failed (business error): machineId={}, reason={}",
                         id,
                         actionResult.reason,
                     )
                 }
 
+                is ActionResult.Failure.TechnicalError -> {
+                    log.error(
+                        "Auto transition action failed (technical error): machineId={}, reason={}",
+                        id,
+                        actionResult.reason,
+                        actionResult.cause,
+                    )
+                }
+
                 is ActionResult.Success -> {
                     val newState = autoTransition.target
+                    val previousState = currentState
                     currentState = newState
-                    repository?.save(this)
-                    log.info("Auto transition: machineId={}, {} -> {}", id, sourceState, newState)
+                    log.info("Auto transition: machineId={}, {} -> {}", id, previousState, newState)
 
                     listener?.onStateChanged(
                         StateContext(
                             machineId = id,
-                            sourceState = sourceState,
+                            sourceState = previousState,
                             targetState = newState,
                             event = null,
                             headers = headers,
@@ -155,7 +172,6 @@ class StateMachine<S : Enum<S>> internal constructor(
             extendedState: Map<String, Any?> = emptyMap(),
             transitionTable: TransitionTable<S> = TransitionTable(),
             listener: StateChangedListener<S>? = null,
-            repository: StateMachineRepository<S>? = null,
         ): StateMachine<S> =
             StateMachine(
                 id = id,
@@ -164,7 +180,6 @@ class StateMachine<S : Enum<S>> internal constructor(
                 extendedState = extendedState.toMutableMap(),
                 transitionTable = transitionTable,
                 listener = listener,
-                repository = repository,
             )
     }
 }

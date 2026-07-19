@@ -53,6 +53,29 @@ CDOA_ACCEPTED
 | DE | 3 | SVS, PRICE, FINANCE |
 | IT | 6 | SVS, BODYBUILDER, CONTRACT_ROLES, PRICING, PAYMENT_SPLIT, FINANCING_BLUEPRINT |
 
+### 事务与重试架构
+
+```
+OrderStateMachineTaskSpec.executeWithLock() [无事务]
+  ├── 获取订单状态（只读）
+  ├── StateMachine.sendEvent()
+  │   └── Actions.execute() ← 无事务，允许耗时操作
+  └── StateMachineListener.onStateChanged() [Transaction]
+      ├── 更新 orders.status
+      └── 保存 state_machine_history
+```
+
+**重试控制**:
+
+| 场景 | ActionResult | StateChangeResult.failureReason | 重试 |
+|------|-------------|--------------------------------|------|
+| 分布式锁获取失败 | - | - | ✅ |
+| Event 不匹配 transition | - | `INVALID_TRANSITION` | ❌ |
+| Action 参数校验失败 | `BusinessError` | `BUSINESS_ERROR` | ❌ |
+| Action 数据库失败 | `TechnicalError` | `TECHNICAL_ERROR` | ✅ |
+| Action HTTP/Kafka 失败 | `TechnicalError` | `TECHNICAL_ERROR` | ✅ |
+| Listener 持久化失败 | - | 抛异常给 TaskSpec | ✅ |
+
 ## 快速开始
 
 ### 前置条件
@@ -392,6 +415,25 @@ override fun execute(context: StateContext<OrderStatus, OrderEvent>) {
 ```kotlin
 @KafkaListener(topics = [KafkaTopics.PR_APPROVED])
 fun onPrApproved(record: ConsumerRecord<String, PrApprovedEvent>) { ... }
+```
+
+### ActionResult - 重试控制
+
+Action 返回类型支持业务错误（不重试）和技术错误（重试）：
+
+```kotlin
+// 业务规则失败 → BusinessError（不重试）
+if (orderNo == null) {
+    return ActionResult.businessError("Missing orderNo")
+}
+
+// 基础设施故障 → TechnicalError（应该重试）
+return try {
+    orderRepository.save(order)
+    ActionResult.success()
+} catch (e: Exception) {
+    ActionResult.technicalError("Database error: ${e.message}", e)
+}
 ```
 
 ## 配置

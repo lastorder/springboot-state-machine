@@ -4,7 +4,6 @@ import com.example.statemachine.application.barrier.OrderInitBarrierAggregate
 import com.example.statemachine.barrieraggregate.BarrierAggregateRepository
 import com.example.statemachine.infrastructure.kafka.CoeProducer
 import com.example.statemachine.infrastructure.kafka.OrderEventProducer
-import com.example.statemachine.infrastructure.persistence.StateMachineJpaRepository
 import com.example.statemachine.infrastructure.rest.DealClient
 import com.example.statemachine.statemachine.action.PrApprovedAction
 import com.example.statemachine.statemachine.action.SendCoeAction
@@ -38,10 +37,8 @@ class UnitTestConfig {
     fun barrierAggregateRepository(): BarrierAggregateRepository = mockk(relaxed = true)
 
     @Bean
-    fun prApprovedAction(
-        orderRepository: com.example.statemachine.domain.repository.OrderRepository,
-        stateMachineJpaRepository: StateMachineJpaRepository,
-    ): PrApprovedAction = PrApprovedAction(orderRepository, stateMachineJpaRepository)
+    fun prApprovedAction(orderRepository: com.example.statemachine.domain.repository.OrderRepository): PrApprovedAction =
+        PrApprovedAction(orderRepository)
 
     @Bean
     fun sendCoeAction(

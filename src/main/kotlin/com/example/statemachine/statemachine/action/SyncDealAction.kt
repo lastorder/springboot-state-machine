@@ -24,7 +24,7 @@ class SyncDealAction(
             ActionResult.success()
         } catch (e: Exception) {
             log.error("Failed to sync order to deal service: orderNo={}", orderNo, e)
-            ActionResult.failure("Failed to sync order: ${e.message}")
+            ActionResult.technicalError("Failed to sync order: ${e.message}", e)
         }
     }
 }
