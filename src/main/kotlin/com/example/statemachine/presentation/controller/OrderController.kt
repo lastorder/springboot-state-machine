@@ -2,6 +2,7 @@ package com.example.statemachine.presentation.controller
 
 import com.example.statemachine.application.service.OrderCommandService
 import com.example.statemachine.application.service.OrderService
+import com.example.statemachine.application.service.StateMachineHistoryService
 import com.example.statemachine.domain.enums.OrderEvent
 import com.example.statemachine.presentation.dto.CreateOrderRequest
 import com.example.statemachine.presentation.dto.OrderResponse
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController
 class OrderController(
     private val orderService: OrderService,
     private val orderCommandService: OrderCommandService,
+    private val stateMachineHistoryService: StateMachineHistoryService,
 ) {
     @PostMapping
     fun createOrder(
@@ -73,5 +75,13 @@ class OrderController(
                 "status" to "submitted",
             ),
         )
+    }
+
+    @GetMapping("/{orderNo}/history")
+    fun getOrderHistory(
+        @PathVariable orderNo: String,
+    ): ResponseEntity<List<com.example.statemachine.presentation.dto.StateMachineHistoryResponse>> {
+        val history = stateMachineHistoryService.getHistoryByOrderNo(orderNo)
+        return ResponseEntity.ok(history)
     }
 }
