@@ -238,44 +238,6 @@
             color: white;
         }
         
-        .nav {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            max-width: 250px;
-        }
-        
-        .nav h4 {
-            color: #6366f1;
-            margin-bottom: 15px;
-            font-size: 1em;
-        }
-        
-        .nav ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        
-        .nav li {
-            margin-bottom: 8px;
-        }
-        
-        .nav a {
-            color: #555;
-            text-decoration: none;
-            font-size: 0.9em;
-            transition: color 0.2s;
-        }
-        
-        .nav a:hover {
-            color: #6366f1;
-        }
-        
         .feature-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -294,30 +256,13 @@
             color: #6366f1;
             margin-top: 0;
         }
-        
-        @media (max-width: 1400px) {
-            .nav {
-                display: none;
-            }
-        }
     </style>
 </head>
 <body>
-    <nav class="nav">
-        <h4>目录</h4>
-        <ul>
-            <li><a href="#introduction">简介</a></li>
-            <li><a href="#binding">状态机绑定设计</a></li>
-            <li><a href="#transaction">事务处理策略</a></li>
-            <li><a href="#core-concepts">核心概念</a></li>
-            <li><a href="#project-usage">项目实战</a></li>
-        </ul>
-    </nav>
-    
     <div class="container">
         <h1>Spring State Machine 使用指南</h1>
         
-        <h2 id="introduction">一、简介</h2>
+        <h2>一、简介</h2>
         
         <p>
             <span class="highlight">Spring State Machine</span> 是 Spring 官方提供的状态机框架，
@@ -330,12 +275,12 @@
                 <p>通过 Builder API 或注解配置状态和转换</p>
             </div>
             <div class="feature-card">
-                <h4>🔄 Fork/Join 模式</h4>
-                <p>支持并行等待多个事件</p>
+                <h4>🔄 Barrier Aggregate 模式</h4>
+                <p>支持等待多个屏障全部通过后进入下一状态</p>
             </div>
             <div class="feature-card">
                 <h4>💾 状态持久化</h4>
-                <p>JPA、Redis 等多种持久化方案</p>
+                <p>JPA 持久化，支持 PostgreSQL JSONB</p>
             </div>
             <div class="feature-card">
                 <h4>📢 事件驱动</h4>
@@ -343,316 +288,318 @@
             </div>
         </div>
         
-        <h2 id="binding">二、状态机绑定设计</h2>
+        <h2>二、线程安全架构</h2>
         
-        <h3>2.1 使用 orderNo 作为 machineId</h3>
-        
-        <div class="success-box">
-            <p>
-                <strong>核心设计</strong>：使用 <code>orderNo</code>（业务订单号）作为状态机的 <code>machineId</code>
-                <br><br>
-                • 外部系统天然知道 orderNo，无需查询 orderId
-                <br>
-                • orderNo 是自然主键，避免 ID 迁移问题
-                <br>
-                • 调试友好，machineId = "ORD-001" 直观可读
-            </p>
-        </div>
-        
-        <div class="state-flow">
-<pre>
-订单表 (orders)              状态机表 (state_machine)
-┌────────────────┐           ┌──────────────────┐
-│ id (PK)        │           │ machine_id (PK)  │
-│ order_no ──────┼───────────┼─► "ORD-001"      │
-│ status         │           │ state            │
-└────────────────┘           └──────────────────┘
-
-绑定关系: orders.order_no = state_machine.machine_id
-</pre>
-        </div>
-        
-        <h3>2.2 StateMachineService 核心 API</h3>
-        
-        <div class="code-title">StateMachineService.kt</div>
-        <pre><code class="language-kotlin">@Service
-class StateMachineService(
-    private val stateMachineFactory: StateMachineFactory&lt;OrderStatus, OrderEvent&gt;,
-    private val jpaStateMachineRepository: JpaStateMachineRepository,
-) {
-    /**
-     * 发送事件（使用 orderNo 作为 machineId）
-     * 这是推荐的 API
-     */
-    fun sendEventByOrderNo(orderNo: String, event: OrderEvent, headers: Map&lt;String, Any&gt; = emptyMap()): Boolean {
-        val machineId = orderNo  // 关键：machineId = orderNo
-        val stateMachine = stateMachineFactory.getStateMachine(machineId)
-        
-        restoreStateMachine(stateMachine, machineId).block()
-        stateMachine.startReactively().block()
-        
-        val message = MessageBuilder.withPayload(event)
-            .setHeader("orderNo", orderNo)
-            .apply { headers.forEach { (k, v) -> setHeader(k, v) } }
-            .build()
-        
-        val result = stateMachine.sendEvent(Mono.just(message))
-            .next().map { it.resultType == ResultType.ACCEPTED }.block() ?: false
-        
-        if (result) persistStateMachine(stateMachine, machineId)
-        stateMachine.stopReactively().block()
-        
-        return result
-    }
-}</code></pre>
-        
-        <h2 id="transaction">三、事务处理策略</h2>
-        
-        <h3>3.1 核心问题</h3>
+        <h3>2.1 核心问题</h3>
         
         <div class="danger-box">
             <p>
-                <strong>Spring State Machine 不是事务安全的</strong>
+                <strong>Spring State Machine 不是线程安全的</strong>
                 <br><br>
-                • 状态机操作涉及 Reactive 流
+                多个线程同时操作同一个订单的状态机会导致状态混乱。
                 <br>
-                • Action 执行需要与数据库事务协调
-                <br>
-                • 状态同步需要独立事务
+                本项目通过 <code>OrderCommandService → TaskSpec → ShedLock</code> 保证线程安全。
             </p>
         </div>
         
-        <h3>3.2 事务边界设计</h3>
-        
-        <table>
-            <thead>
-                <tr>
-                    <th>组件</th>
-                    <th>事务策略</th>
-                    <th>原因</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td><code>StateMachineService.sendEventByOrderNo()</code></td>
-                    <td><strong>无事务</strong></td>
-                    <td>涉及 Reactive 流</td>
-                </tr>
-                <tr>
-                    <td><code>Action.execute()</code></td>
-                    <td><strong>无 @Transactional</strong></td>
-                    <td>由 Repository 方法继承事务</td>
-                </tr>
-                <tr>
-                    <td><code>OrderStatusSyncService.syncOrderStatusByOrderNo()</code></td>
-                    <td><strong>@Transactional(REQUIRES_NEW)</strong></td>
-                    <td>独立事务，确保隔离</td>
-                </tr>
-            </tbody>
-        </table>
-        
-        <h3>3.3 状态同步：REQUIRES_NEW 策略</h3>
-        
-        <div class="info-box">
-            <p>
-                <strong>为什么使用 REQUIRES_NEW？</strong>
-                <br><br>
-                1. <strong>隔离性</strong>：状态同步失败不影响状态机持久化
-                <br>
-                2. <strong>一致性</strong>：即使外部事务回滚，状态同步也已提交
-                <br>
-                3. <strong>错误处理</strong>：catch 异常后仅记录日志，不传播
-            </p>
-        </div>
-        
-        <div class="code-title">OrderStatusSyncService.kt</div>
-        <pre><code class="language-kotlin">@Service
-class OrderStatusSyncService(private val orderJpaRepository: OrderJpaRepository) {
-    
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    fun syncOrderStatusByOrderNo(orderNo: String, newStatus: OrderStatus): Boolean {
-        val entity = orderJpaRepository.findByOrderNo(orderNo) ?: return false
-        entity.status = newStatus
-        entity.updatedAt = Instant.now()
-        orderJpaRepository.save(entity)
-        return true
-    }
-}</code></pre>
-        
-        <h3>3.4 状态同步触发时机</h3>
+        <h3>2.2 架构设计</h3>
         
         <div class="mermaid">
 sequenceDiagram
-    participant SM as StateMachineService
-    participant StateMachine
-    participant SML as StateMachineListener
-    participant OSS as OrderStatusSyncService
-    participant DB as orders 表
+    participant API as REST API
+    participant Kafka as Kafka Consumer
+    participant OCS as OrderCommandService
+    participant TS as TaskScheduler
+    participant DB as db-scheduler
+    participant Task as OrderStateMachineTaskSpec
+    participant Lock as ShedLock
+    participant SM as StateMachine
     
-    SM->>StateMachine: sendEventByOrderNo(orderNo, event)
-    StateMachine->>StateMachine: 恢复状态 / 启动 / 发送事件
-    StateMachine->>StateMachine: persistStateMachine()
-    StateMachine->>StateMachine: stopReactively()
-    StateMachine->>SML: stateMachineStopped(machineId)
-    SML->>OSS: syncOrderStatusByOrderNo(orderNo, finalState)
-    Note over OSS: @Transactional(REQUIRES_NEW)
-    OSS->>DB: UPDATE orders SET status = ?
+    API->>OCS: submitOrderEvent(orderNo, event)
+    Kafka->>OCS: onEvent(orderNo, event)
+    OCS->>TS: submit(taskSpec, instanceId, payload)
+    TS->>DB: INSERT scheduled_tasks
+    DB->>Task: 异步执行任务
+    Task->>Lock: lock(orderNo)
+    Lock-->>Task: 获取锁成功
+    Task->>SM: sendEvent(orderNo, event)
+    SM-->>Task: 执行成功
+    Task->>Lock: unlock()
         </div>
+        
+        <h3>2.3 OrderCommandService 统一入口</h3>
+        
+        <div class="code-title">OrderCommandService.kt</div>
+        <pre><code class="language-kotlin">@Service
+class OrderCommandService(
+    private val taskScheduler: TaskScheduler,
+    private val orderStateMachineTaskSpec: OrderStateMachineTaskSpec,
+) {
+    fun submitOrderEvent(orderNo: String, event: OrderEvent) {
+        val instanceId = "order-$orderNo-${event.name}-${UUID.randomUUID()}"
+        val payload = OrderEventPayload(orderNo, event)
+        
+        taskScheduler.submit(
+            spec = orderStateMachineTaskSpec,
+            instanceId = instanceId,
+            payload = payload,
+        )
+    }
+}</code></pre>
+        
+        <h2>三、状态机配置</h2>
+        
+        <h3>3.1 StateMachineConfig 核心配置</h3>
+        
+        <div class="code-title">StateMachineConfig.kt</div>
+        <pre><code class="language-kotlin">@Configuration
+@EnableStateMachineFactory
+class StateMachineConfig(
+    private val listener: StateMachineListener,
+) : StateMachineConfigurerAdapter&lt;OrderStatus, OrderEvent&gt;() {
+    
+    override fun configure(states: StateMachineStateConfigurer&lt;OrderStatus, OrderEvent&gt;) {
+        states
+            .withStates()
+            .initial(OrderStatus.INIT)
+            .states(EnumSet.allOf(OrderStatus::class.java))
+    }
+    
+    override fun configure(transitions: StateMachineTransitionConfigurer&lt;OrderStatus, OrderEvent&gt;) {
+        // INIT → LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED
+        transitions
+            .withExternal()
+                .source(OrderStatus.INIT)
+                .target(OrderStatus.LOCAL_INITIALIZED)
+                .event(OrderEvent.PR_APPROVED)
+                .action(prApprovedAction)
+            .and()
+            .withExternal()
+                .source(OrderStatus.LOCAL_INITIALIZED)
+                .target(OrderStatus.FACTORY_ORDER_SUBMITTED)
+                .action(initializeOrderInitBarrierAction)
+            // ... 更多转换配置
+    }
+    
+    override fun configure(config: StateMachineConfigurationConfigurer&lt;OrderStatus, OrderEvent&gt;) {
+        config.withConfiguration()
+            .listener(listener)  // 全局注册 Listener
+            .autoStartup(false)
+    }
+}</code></pre>
+        
+        <h3>3.2 状态同步机制</h3>
         
         <div class="code-title">StateMachineListener.kt</div>
         <pre><code class="language-kotlin">@Component
-class StateMachineListener(private val orderStatusSyncService: OrderStatusSyncService) 
-    : StateMachineListenerAdapter&lt;OrderStatus, OrderEvent&gt;() {
+class StateMachineListener(
+    private val orderJpaRepository: OrderJpaRepository,
+    private val transactionTemplate: TransactionTemplate,
+) : StateMachineListenerAdapter&lt;OrderStatus, OrderEvent&gt;() {
     
-    override fun stateMachineStopped(stateMachine: StateMachine&lt;OrderStatus, OrderEvent&gt;) {
-        val orderNo = stateMachine.id  // machineId = orderNo
-        val finalState = stateMachine.state?.id ?: return
-        
-        try {
-            orderStatusSyncService.syncOrderStatusByOrderNo(orderNo, finalState)
-        } catch (e: Exception) {
-            log.error("Status sync failed but state machine continues", e)
-        }
-    }
-}</code></pre>
-        
-        <h3>3.5 Action 事务处理</h3>
-        
-        <div class="code-title">PrApprovedAction.kt - 幂等处理</div>
-        <pre><code class="language-kotlin">@Component
-class PrApprovedAction(
-    private val orderRepository: OrderRepository,
-    private val stateMachineService: StateMachineService,
-) : Action&lt;OrderStatus, OrderEvent&gt; {
-    
-    override fun execute(context: StateContext&lt;OrderStatus, OrderEvent&gt;) {
-        // 无 @Transactional，由 Repository 方法继承事务
-        val orderNo = context.message.headers.get("orderNo") as? String ?: return
-        
-        // 幂等检查
-        val existingOrder = orderRepository.findByOrderNo(orderNo)
-        if (existingOrder != null) {
-            val existingStatus = stateMachineService.getCurrentStateByOrderNo(orderNo)
-            if (existingStatus != null && existingStatus != OrderStatus.INIT) {
-                log.info("Order already processed, skipping: orderNo=$orderNo")
-                return
+    // 关键：使用 STATE_CHANGED 阶段获取状态机 ID
+    // Spring State Machine 4.x 的 State 接口没有 stateMachine 属性
+    override fun stateChanged(
+        from: State&lt;OrderStatus, OrderEvent&gt;?,
+        to: State&lt;OrderStatus, OrderEvent&gt;?,
+        context: StateContext&lt;OrderStatus, OrderEvent&gt;,
+    ) {
+        if (context.stage == StateContext.Stage.STATE_CHANGED) {
+            val orderNo = context.stateMachine.id
+            val newStatus = to?.id ?: return
+            
+            // 使用 TransactionTemplate 确保 Spring AOP 生效
+            transactionTemplate.execute {
+                val entity = orderJpaRepository.findByOrderNo(orderNo) ?: return@execute
+                entity.status = newStatus
+                entity.updatedAt = Instant.now()
             }
         }
-        
-        // 创建新订单
-        val order = Order.fromPrApproved(orderNo, ...)
-        orderRepository.save(order)  // 继承事务
-        stateMachineService.initializeStateMachineByOrderNo(orderNo, OrderStatus.LOCAL_INITIALIZED)
     }
 }</code></pre>
         
-        <h3>3.6 事务最佳实践总结</h3>
-        
-        <div class="success-box">
+        <div class="warning-box">
             <p>
-                <strong>1. StateMachineService 方法不加 @Transactional</strong>
-                <br>
-                Reactive 流不能在传统事务内执行
+                <strong>Spring AOP 不拦截同类内方法调用</strong>
                 <br><br>
-                <strong>2. Action 不加 @Transactional</strong>
-                <br>
-                由 Repository 继承事务，或调用独立事务服务
-                <br><br>
-                <strong>3. 状态同步使用 REQUIRES_NEW</strong>
-                <br>
-                独立事务，失败不影响状态机
-                <br><br>
-                <strong>4. 状态同步放在 stateMachineStopped</strong>
-                <br>
-                确保每次状态变更都同步到业务表
+                不能在 Listener 内部调用带 <code>@Transactional</code> 的方法，需要使用 <code>TransactionTemplate</code>。
             </p>
         </div>
         
-        <h2 id="core-concepts">四、核心概念</h2>
+        <h2>四、Barrier Aggregate 模式</h2>
         
-        <table>
-            <thead>
-                <tr>
-                    <th>组件</th>
-                    <th>说明</th>
-                    <th>项目中的定义</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td><strong>State</strong></td>
-                    <td>状态，枚举类型</td>
-                    <td><code>OrderStatus</code>：INIT, LOCAL_INITIALIZED, ...</td>
-                </tr>
-                <tr>
-                    <td><strong>Event</strong></td>
-                    <td>事件，触发状态转换</td>
-                    <td><code>OrderEvent</code>：PR_APPROVED, VOM, DOM, ...</td>
-                </tr>
-                <tr>
-                    <td><strong>Action</strong></td>
-                    <td>动作，转换时执行的逻辑</td>
-                    <td><code>PrApprovedAction</code>, <code>SendCoeAction</code>, ...</td>
-                </tr>
-                <tr>
-                    <td><strong>StateMachine</strong></td>
-                    <td>状态机实例</td>
-                    <td>每个订单一个实例，通过 <code>orderNo</code> 标识</td>
-                </tr>
-            </tbody>
-        </table>
+        <h3>4.1 模式说明</h3>
         
-        <h2 id="project-usage">五、项目实战总结</h2>
+        <div class="info-box">
+            <p>
+                <strong>为什么需要 Barrier Aggregate？</strong>
+                <br><br>
+                某些状态转换需要等待多个外部事件全部到达后才能进行。
+                <br>
+                例如：FACTORY_ORDER_SUBMITTED 状态需要等待 VOM 和 DOM 两个事件。
+            </p>
+        </div>
         
-        <h3>5.1 关键文件</h3>
+        <h3>4.2 数据模型</h3>
         
-        <table>
-            <thead>
-                <tr>
-                    <th>文件</th>
-                    <th>职责</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td><code>StateMachineService.kt</code></td>
-                    <td>状态机服务（无事务）</td>
-                </tr>
-                <tr>
-                    <td><code>StateMachineListener.kt</code></td>
-                    <td>状态同步触发</td>
-                </tr>
-                <tr>
-                    <td><code>OrderStatusSyncService.kt</code></td>
-                    <td>独立事务状态同步 (REQUIRES_NEW)</td>
-                </tr>
-                <tr>
-                    <td><code>*Action.kt</code></td>
-                    <td>业务逻辑（无 @Transactional）</td>
-                </tr>
-            </tbody>
-        </table>
+        <div class="code-title">BarrierAggregateRecord.kt</div>
+        <pre><code class="language-kotlin">@Entity
+@Table(name = "barrier_aggregate")
+class BarrierAggregateRecord(
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    val id: Long? = null,
+    
+    @Column(name = "aggregate_type", nullable = false)
+    val aggregateType: String,
+    
+    @Column(name = "aggregate_key", nullable = false)
+    val aggregateKey: String,  // orderNo
+    
+    @Column(name = "required_barriers", columnDefinition = "jsonb")
+    @Convert(converter = BarrierListConverter::class)
+    var requiredBarriers: List&lt;String&gt;,
+    
+    @Column(name = "passed_barriers", columnDefinition = "jsonb")
+    @Convert(converter = BarrierListConverter::class)
+    var passedBarriers: MutableList&lt;String&gt; = mutableListOf(),
+    
+    @Version
+    var version: Long = 0,
+)</code></pre>
         
-        <h3>5.2 最佳实践</h3>
+        <h3>4.3 MarketAwareBarrierAggregate</h3>
+        
+        <div class="code-title">MarketAwareBarrierAggregate.kt</div>
+        <pre><code class="language-kotlin">abstract class MarketAwareBarrierAggregate(
+    repository: BarrierAggregateRepository,
+    private val barrierType: BarrierType,
+) : BarrierAggregate(repository) {
+    
+    protected abstract val marketBarrierConfig: Map&lt;Market, List&lt;String&gt;&gt;
+    
+    override fun getRequiredBarriers(market: Market): List&lt;String&gt; {
+        return marketBarrierConfig[market] ?: emptyList()
+    }
+    
+    abstract override fun onAllBarriersPassed(aggregateKey: String)
+    
+    abstract override fun onBarrierFailed(aggregateKey: String)
+}</code></pre>
+        
+        <h3>4.4 具体实现</h3>
+        
+        <div class="code-title">PurchaseRequestAcceptBarrierAggregate.kt</div>
+        <pre><code class="language-kotlin">@Component
+class PurchaseRequestAcceptBarrierAggregate(
+    repository: BarrierAggregateRepository,
+    private val orderCommandService: OrderCommandService,
+) : MarketAwareBarrierAggregate(repository, PurchaseRequestAcceptBarrier) {
+    
+    override val marketBarrierConfig = mapOf(
+        Market.DE to listOf("SVS", "PRICE", "FINANCE"),
+        Market.IT to listOf("SVS", "BODYBUILDER", "CONTRACT_ROLES", "PRICING", "PAYMENT_SPLIT", "FINANCING_BLUEPRINT"),
+    )
+    
+    override fun onAllBarriersPassed(aggregateKey: String) {
+        orderCommandService.submitOrderEvent(aggregateKey, OrderEvent.PURCHASE_REQUEST_ACCEPT_SUCCESS)
+    }
+    
+    override fun onBarrierFailed(aggregateKey: String) {
+        orderCommandService.submitOrderEvent(aggregateKey, OrderEvent.PURCHASE_REQUEST_ACCEPT_FAILED)
+    }
+}</code></pre>
+        
+        <h2>五、Action 设计</h2>
+        
+        <h3>5.1 AbstractBroadcastAction</h3>
+        
+        <div class="code-title">AbstractBroadcastAction.kt</div>
+        <pre><code class="language-kotlin">abstract class AbstractBroadcastAction(
+    private val orderEventProducer: OrderEventProducer,
+) : Action&lt;OrderStatus, OrderEvent&gt; {
+    
+    protected abstract val targetStatus: OrderStatus
+    
+    override fun execute(context: StateContext&lt;OrderStatus, OrderEvent&gt;) {
+        val orderNo = OrderActionUtils.extractOrderNo(context)
+        orderEventProducer.broadcastStatusChange(orderNo, targetStatus)
+    }
+}</code></pre>
+        
+        <h3>5.2 OrderActionUtils</h3>
+        
+        <div class="code-title">OrderActionUtils.kt</div>
+        <pre><code class="language-kotlin">object OrderActionUtils {
+    fun extractOrderNo(context: StateContext&lt;OrderStatus, OrderEvent&gt;): String {
+        return context.message.headers.get("orderNo") as? String
+            ?: context.stateMachine.id
+            ?: throw IllegalStateException("Cannot extract orderNo from context")
+    }
+}</code></pre>
+        
+        <h2>六、测试策略</h2>
+        
+        <h3>6.1 自动转换状态验证</h3>
+        
+        <div class="warning-box">
+            <p>
+                <strong>问题场景</strong>
+                <br><br>
+                PR_APPROVED event received
+                <br>
+                └─> INIT → LOCAL_INITIALIZED (有事件的转换)
+                <br>
+                &nbsp;&nbsp;&nbsp;&nbsp;└─> LOCAL_INITIALIZED → FACTORY_ORDER_SUBMITTED (自动转换)
+                <br><br>
+                <code>STATE_CHANGED</code> 回调顺序可能与转换顺序相反。
+            </p>
+        </div>
+        
+        <h3>6.2 测试策略</h3>
+        
+        <div class="success-box">
+            <p>
+                <strong>1. 验证 Action 执行结果</strong>
+                <br>
+                检查 Action 的副作用，如 barrier aggregate 是否创建
+                <br><br>
+                <strong>2. 验证最终状态</strong>
+                <br>
+                跳过中间状态，直接验证有事件触发的目标状态
+            </p>
+        </div>
+        
+        <div class="code-title">测试示例</div>
+        <pre><code class="language-kotlin">// 不验证中间状态
+// assertEquals(OrderStatus.FACTORY_ORDER_SUBMITTED, order.status)
+
+// 改为验证 Action 执行结果
+await().untilAsserted {
+    val barriers = barrierAggregateJpaRepository.findAll()
+    assertTrue(barriers.any { it.aggregateKey == orderNo })
+}</code></pre>
+        
+        <h2>七、最佳实践总结</h2>
         
         <div class="success-box">
             <p>
                 <strong>1. 使用 orderNo 作为 machineId</strong> - 外部系统友好
                 <br><br>
-                <strong>2. 状态同步使用 REQUIRES_NEW</strong> - 独立事务
+                <strong>2. 统一使用 OrderCommandService</strong> - 保证线程安全
                 <br><br>
-                <strong>3. Action 不加 @Transactional</strong> - Repository 继承事务
+                <strong>3. 状态同步使用 TransactionTemplate</strong> - 避免 Spring AOP 问题
                 <br><br>
-                <strong>4. 及时持久化状态机</strong> - 每次 event 后 persist
+                <strong>4. Barrier Aggregate 使用乐观锁</strong> - 防止并发问题
                 <br><br>
-                <strong>5. 幂等处理重复消息</strong> - 检查状态后处理
+                <strong>5. 测试时跳过中间状态验证</strong> - 避免 Spring State Machine 回调顺序不确定性
             </p>
         </div>
         
         <hr style="margin: 40px 0; border: none; border-top: 2px solid #e2e8f0;">
         
         <p style="text-align: center; color: #718096; font-size: 0.9em;">
-            文档版本：3.0 | 更新日期：2026-07-17 | 项目：springboot-state-machine
+            文档版本：4.0 | 更新日期：2026-07-19 | 项目：springboot-state-machine
         </p>
     </div>
     

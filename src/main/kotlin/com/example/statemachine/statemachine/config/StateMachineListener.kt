@@ -5,6 +5,7 @@ import com.example.statemachine.domain.enums.OrderStatus
 import com.example.statemachine.infrastructure.persistence.repository.OrderJpaRepository
 import org.slf4j.LoggerFactory
 import org.springframework.messaging.Message
+import org.springframework.statemachine.StateContext
 import org.springframework.statemachine.StateMachine
 import org.springframework.statemachine.listener.StateMachineListenerAdapter
 import org.springframework.statemachine.state.State
@@ -27,19 +28,17 @@ class StateMachineListener(
     }
 
     override fun transition(transition: Transition<OrderStatus, OrderEvent>) {
-        log.info(
-            "Transition: ${transition.source?.id} -> ${transition.target?.id}, trigger=${transition.trigger}",
-        )
+        log.info("Transition: ${transition.source?.id} -> ${transition.target?.id}")
     }
 
-    override fun stateMachineStopped(stateMachine: StateMachine<OrderStatus, OrderEvent>) {
-        val orderNo = stateMachine.id
-        val finalState = stateMachine.state?.id
+    override fun stateContext(context: StateContext<OrderStatus, OrderEvent>) {
+        if (context.stage == StateContext.Stage.STATE_CHANGED) {
+            val orderNo = context.stateMachine.id as? String
+            val newStatus = context.target?.id
 
-        log.debug("State machine stopped: orderNo=$orderNo, finalState=$finalState")
-
-        if (!orderNo.isNullOrBlank() && finalState != null) {
-            syncOrderStatus(orderNo, finalState)
+            if (!orderNo.isNullOrBlank() && newStatus != null) {
+                syncOrderStatus(orderNo, newStatus)
+            }
         }
     }
 
