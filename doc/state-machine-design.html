@@ -214,10 +214,12 @@
                 <strong>核心特性：</strong>
                 <ul>
                     <li><strong>orderNo 绑定</strong>：状态机以 orderNo 作为 machineId，外部系统无需关注内部 orderId</li>
-                    <li><strong>Barribar Aggregate 模式</strong>：每个阶段需要等待多个屏障全部通过后才能进入下一阶段</li>
+                    <li><strong>Barrier Aggregate 模式</strong>：每个阶段需要等待多个屏障全部通过后才能进入下一阶段</li>
                     <li><strong>市场感知</strong>：不同市场需要不同的屏障配置</li>
                     <li><strong>失败重试</strong>：PR Accept 失败后支持重试</li>
                     <li><strong>线程安全</strong>：通过 OrderCommandService → TaskSpec → ShedLock 保证同一订单的事件串行执行</li>
+                    <li><strong>事务最小化</strong>：事务仅包裹状态持久化，Action 在事务外执行</li>
+                    <li><strong>精细化重试控制</strong>：区分 BusinessError（不重试）和 TechnicalError（重试）</li>
                 </ul>
             </div>
             
@@ -487,7 +489,108 @@ stateDiagram-v2
         </div>
         
         <div class="section">
-            <h2>5. 线程安全架构</h2>
+            <h2>5. 事务与重试架构</h2>
+            
+            <h3>5.1 事务边界设计</h3>
+            <div class="code-block">
+<pre>
+OrderStateMachineTaskSpec.executeWithLock() [无事务]
+  ├── 获取订单状态（只读）
+  ├── StateMachine.sendEvent()
+  │   └── Actions.execute() ← 无事务，允许耗时操作
+  │       ├── HTTP 调用
+  │       ├── Kafka 发送
+  │       └── Barrier 初始化
+  └── StateMachineListener.onStateChanged() [Transaction]
+      ├── 更新 orders.status
+      └── 保存 state_machine_history
+</pre>
+            </div>
+            
+            <div class="success-box">
+                <strong>设计优势：</strong>
+                <ul>
+                    <li><strong>事务最小化</strong>：仅包裹 orders.status 和 state_machine_history 的原子写入</li>
+                    <li><strong>避免长事务</strong>：Action 中的 HTTP、Kafka 操作不在事务中</li>
+                    <li><strong>锁竞争减少</strong>：数据库锁持有时间最短</li>
+                </ul>
+            </div>
+            
+            <h3>5.2 重试控制</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>场景</th>
+                        <th>ActionResult</th>
+                        <th>StateChangeResult.failureReason</th>
+                        <th>重试</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>分布式锁获取失败</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>✅ LockingTaskSpec 返回 retryable=true</td>
+                    </tr>
+                    <tr>
+                        <td>Event 不匹配 transition</td>
+                        <td>-</td>
+                        <td>INVALID_TRANSITION</td>
+                        <td>❌</td>
+                    </tr>
+                    <tr>
+                        <td>Action 参数校验失败</td>
+                        <td>BusinessError</td>
+                        <td>BUSINESS_ERROR</td>
+                        <td>❌</td>
+                    </tr>
+                    <tr>
+                        <td>Action 数据库失败</td>
+                        <td>TechnicalError</td>
+                        <td>TECHNICAL_ERROR</td>
+                        <td>✅</td>
+                    </tr>
+                    <tr>
+                        <td>Action HTTP/Kafka 失败</td>
+                        <td>TechnicalError</td>
+                        <td>TECHNICAL_ERROR</td>
+                        <td>✅</td>
+                    </tr>
+                    <tr>
+                        <td>Listener 持久化失败</td>
+                        <td>-</td>
+                        <td>抛异常给 TaskSpec</td>
+                        <td>✅</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <h3>5.3 ActionResult 密封类</h3>
+            <div class="code-block">
+<pre>
+sealed class ActionResult {
+    data class Success(val nextEvent: Enum<*>? = null) : ActionResult()
+    
+    sealed class Failure : ActionResult() {
+        abstract val reason: String
+        
+        // 业务规则失败，不应重试（如：参数校验失败、订单已存在）
+        data class BusinessError(override val reason: String) : Failure()
+        
+        // 技术故障，应该重试（如：数据库连接失败、HTTP 调用超时）
+        data class TechnicalError(
+            override val reason: String,
+            val cause: Throwable? = null,
+        ) : Failure()
+    }
+}
+</pre>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>6. 线程安全架构</h2>
             
             <div class="danger-box">
                 <strong>重要：Spring State Machine 不是线程安全的</strong>
@@ -538,9 +641,9 @@ stateDiagram-v2
         </div>
         
         <div class="section">
-            <h2>6. Barrier Aggregate 模式</h2>
+            <h2>7. Barrier Aggregate 模式</h2>
             
-            <h3>6.1 单表 JSONB 设计</h3>
+            <h3>7.1 单表 JSONB 设计</h3>
             <div class="code-block">
 <pre>
 CREATE TABLE barrier_aggregate (
@@ -556,7 +659,7 @@ CREATE TABLE barrier_aggregate (
 </pre>
             </div>
             
-            <h3>6.2 类结构</h3>
+            <h3>7.2 类结构</h3>
             <div class="mermaid">
 classDiagram
     class BarrierAggregate {
@@ -595,7 +698,7 @@ classDiagram
         </div>
         
         <div class="section">
-            <h2>7. Kafka Topics</h2>
+            <h2>8. Kafka Topics</h2>
             <table>
                 <thead>
                     <tr>
@@ -647,7 +750,7 @@ classDiagram
         </div>
         
         <div class="section">
-            <h2>8. 关键实现文件</h2>
+            <h2>9. 关键实现文件</h2>
             <table>
                 <thead>
                     <tr>
@@ -657,39 +760,43 @@ classDiagram
                 </thead>
                 <tbody>
                     <tr>
+                        <td><code>ActionResult.kt</code></td>
+                        <td>BusinessError / TechnicalError 重试控制</td>
+                    </tr>
+                    <tr>
+                        <td><code>StateChangeResult.kt</code></td>
+                        <td>failureReason + shouldRetry() 方法</td>
+                    </tr>
+                    <tr>
+                        <td><code>StateMachine.kt</code></td>
+                        <td>传递失败原因到 StateChangeResult</td>
+                    </tr>
+                    <tr>
                         <td><code>OrderCommandService.kt</code></td>
                         <td>统一入口，提交事件到 TaskScheduler</td>
                     </tr>
                     <tr>
                         <td><code>OrderStateMachineTaskSpec.kt</code></td>
-                        <td>状态机操作逻辑，ShedLock 分布式锁保护</td>
-                    </tr>
-                    <tr>
-                        <td><code>StateMachineConfig.kt</code></td>
-                        <td>状态机配置，全局注册 Listener</td>
+                        <td>状态机操作逻辑，无事务，根据 failureReason 决定重试</td>
                     </tr>
                     <tr>
                         <td><code>StateMachineListener.kt</code></td>
-                        <td>状态同步到 orders 表</td>
+                        <td>TransactionTemplate 包裹持久化</td>
+                    </tr>
+                    <tr>
+                        <td><code>*Action.kt</code></td>
+                        <td>使用 businessError / technicalError</td>
                     </tr>
                     <tr>
                         <td><code>*BarrierAggregate.kt</code></td>
                         <td>屏障聚合实现</td>
-                    </tr>
-                    <tr>
-                        <td><code>OrderEventConsumer.kt</code></td>
-                        <td>Kafka 消费者：PR_APPROVED, VOM, DOM</td>
-                    </tr>
-                    <tr>
-                        <td><code>ChangeTriggerConsumer.kt</code></td>
-                        <td>Kafka 消费者：BARRIER_PASS</td>
                     </tr>
                 </tbody>
             </table>
         </div>
         
         <div class="section">
-            <h2>9. 测试注意事项</h2>
+            <h2>10. 测试注意事项</h2>
             
             <div class="warning-box">
                 <strong>自动转换状态的验证</strong>
@@ -699,7 +806,7 @@ classDiagram
         </div>
         
         <div class="footer">
-            <p>生成时间：2026-07-19 | Spring Boot State Machine 订单生命周期系统</p>
+            <p>生成时间：2026-07-20 | Spring Boot State Machine 订单生命周期系统</p>
         </div>
     </div>
     

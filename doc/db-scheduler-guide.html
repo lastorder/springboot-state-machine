@@ -60,7 +60,7 @@
         <h2>二、为什么需要 TaskSpec 封装？</h2>
         
         <div class="danger-box">
-            <p><strong>Spring State Machine 不是线程安全的</strong><br><br>多个线程同时操作同一个订单的状态机会导致状态混乱。我们需要 TaskSpec + ShedLock 保证线程安全。</p>
+            <p><strong>状态机需要线程安全和重试控制</strong><br><br>多个线程同时操作同一个订单的状态机会导致状态混乱。我们需要 TaskSpec + ShedLock 保证线程安全，同时通过 ActionResult 实现精细化重试控制。</p>
         </div>
         
         <table>
@@ -69,6 +69,7 @@
                 <tr><td>分布式锁</td><td>❌ 不支持</td><td>✅ ShedLock 集成</td></tr>
                 <tr><td>同一订单串行执行</td><td>❌ 需手动实现</td><td>✅ lockKeyProvider</td></tr>
                 <tr><td>语义化 API</td><td>❌ 需构造 TaskInstance</td><td>✅ taskScheduler.submit()</td></tr>
+                <tr><td>精细化重试</td><td>❌ 只有 fail/reschedule</td><td>✅ BusinessError/TechnicalError</td></tr>
             </tbody>
         </table>
         
@@ -79,94 +80,254 @@
         <pre><code class="language-kotlin">interface TaskSpec<P : Serializable> {
     val taskName: String
     val maxRetries: Int get() = 3
+    val retryStrategy: RetryStrategy get() = RetryStrategy.FixedDelay(Duration.ofMinutes(5))
     val payloadClass: Class<P>
+    
     fun execute(context: TaskContext<P>): TaskResult
+    
+    fun onFinalFailure(context: TaskContext<P>) {
+        // 任务最终失败时的回调
+    }
 }</code></pre>
         
         <h3>3.2 TaskResult 密封类</h3>
         <div class="code-title">TaskResult.kt</div>
         <pre><code class="language-kotlin">sealed class TaskResult {
-    data object Success : TaskResult()
-    data class Retry(val delay: Duration = Duration.ofMinutes(1)) : TaskResult()
-    data class Fail(val reason: String? = null) : TaskResult()
+    data class Success(val message: String? = null) : TaskResult()
+    
+    data class Fail(
+        val reason: String,
+        val cause: Throwable? = null,
+        val retryable: Boolean = true,  // 关键：控制是否重试
+        val delay: Duration? = null,
+    ) : TaskResult()
+    
+    companion object {
+        fun success(message: String? = null): TaskResult = Success(message)
+        fun fail(reason: String, retryable: Boolean = true): TaskResult = Fail(reason, retryable = retryable)
+        fun failWithoutRetry(reason: String): TaskResult = Fail(reason, retryable = false)
+    }
 }</code></pre>
         
         <h3>3.3 LockingTaskSpec（分布式锁）</h3>
         <div class="code-title">LockingTaskSpec.kt</div>
         <pre><code class="language-kotlin">abstract class LockingTaskSpec<P : Serializable>(
-    override val taskName: String,
     private val lockProvider: LockProvider,
     private val lockKeyProvider: (TaskContext<P>) -> String,
 ) : TaskSpec<P> {
-    override fun execute(context: TaskContext<P>): TaskResult {
+    
+    final override fun execute(context: TaskContext<P>): TaskResult {
         val lockKey = lockKeyProvider(context)
         val lock = lockProvider.lock(lockKey)
-        return if (lock != null) {
-            try { executeWithLock(context) } finally { lock.unlock() }
-        } else { TaskResult.retry() }
+        
+        if (lock.isEmpty) {
+            // 锁获取失败 → 返回可重试
+            return TaskResult.fail("Lock unavailable: $lockKey", retryable = true)
+        }
+        
+        return try {
+            executeWithLock(context)
+        } finally {
+            lock.get().unlock()
+        }
     }
-    abstract fun executeWithLock(context: TaskContext<P>): TaskResult
+    
+    protected abstract fun executeWithLock(context: TaskContext<P>): TaskResult
 }</code></pre>
         
-        <div class="success-box">
-            <p><strong>锁粒度控制：</strong><br><code>{ ctx -> "order:${ctx.payload.orderNo}" }</code> 表示同一个 orderNo 的所有事件会串行执行。</p>
-        </div>
+        <h2>四、重试策略</h2>
         
-        <h2>四、项目实战</h2>
+        <h3>4.1 重试场景</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>场景</th>
+                    <th>retryable</th>
+                    <th>重试次数</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>分布式锁获取失败</td>
+                    <td>✅ true</td>
+                    <td>无限（直到成功）</td>
+                </tr>
+                <tr>
+                    <td>Event 不匹配 transition</td>
+                    <td>❌ false</td>
+                    <td>0</td>
+                </tr>
+                <tr>
+                    <td>Action 业务错误</td>
+                    <td>❌ false</td>
+                    <td>0</td>
+                </tr>
+                <tr>
+                    <td>Action 技术错误</td>
+                    <td>✅ true</td>
+                    <td>maxRetries</td>
+                </tr>
+                <tr>
+                    <td>Listener 持久化失败</td>
+                    <td>✅ true</td>
+                    <td>maxRetries</td>
+                </tr>
+            </tbody>
+        </table>
         
-        <h3>4.1 OrderStateMachineTaskSpec 实现</h3>
+        <h3>4.2 RetryStrategy 配置</h3>
+        <div class="code-title">重试策略选项</div>
+        <pre><code class="language-kotlin">sealed class RetryStrategy {
+    // 固定延迟
+    data class FixedDelay(val delay: Duration) : RetryStrategy()
+    
+    // 指数退避
+    data class ExponentialBackoff(
+        val initialDelay: Duration,
+        val multiplier: Double = 2.0,
+    ) : RetryStrategy()
+    
+    // 不重试
+    object NoRetry : RetryStrategy()
+}</code></pre>
+        
+        <h2>五、OrderStateMachineTaskSpec 实现</h2>
+        
         <div class="code-title">OrderStateMachineTaskSpec.kt</div>
         <pre><code class="language-kotlin">@Component
 class OrderStateMachineTaskSpec(
-    private val jpaStateMachineRepository: JpaStateMachineRepository,
-    private val stateMachineFactory: StateMachineFactory&lt;OrderStatus, OrderEvent&gt;,
+    private val orderJpaRepository: OrderJpaRepository,
+    private val transitionTable: TransitionTable<OrderStatus>,
+    private val stateMachineListener: StateChangedListener<OrderStatus>,
     lockProvider: LockProvider,
-) : LockingTaskSpec&lt;OrderEventPayload&gt;(
-    taskName = "order-state-machine",
+) : LockingTaskSpec<OrderEventPayload>(
     lockProvider = lockProvider,
     lockKeyProvider = { ctx -> "order:${ctx.payload.orderNo}" },
 ) {
-    override fun executeWithLock(context: TaskContext&lt;OrderEventPayload&gt;): TaskResult {
-        val orderNo = context.payload.orderNo
-        val event = context.payload.event
-        // 状态机操作...
-        return if (success) TaskResult.success() else TaskResult.fail("Rejected")
+    override val taskName: String = "order-state-machine"
+    override val maxRetries: Int = 5
+    override val retryStrategy: RetryStrategy =
+        RetryStrategy.exponentialBackoff(Duration.ofSeconds(3), 2.0)
+    
+    override fun executeWithLock(context: TaskContext<OrderEventPayload>): TaskResult {
+        val payload = context.payload
+        
+        // Step 1: 获取当前状态（只读）
+        val order = orderJpaRepository.findByOrderNo(payload.orderNo)
+        val currentState = order?.status ?: OrderStatus.INIT
+        
+        // Step 2: 执行状态机（无事务）
+        val stateMachine = StateMachine.restore(
+            id = payload.orderNo,
+            currentState = currentState,
+            initialState = OrderStatus.INIT,
+            transitionTable = transitionTable,
+            listener = stateMachineListener,  // Listener 内部使用事务
+        )
+        val result = stateMachine.sendEvent(payload.event, headers)
+        
+        // Step 3: 根据结果决定重试策略
+        return when {
+            result.accepted -> TaskResult.success()
+            result.shouldRetry() -> TaskResult.fail("Technical error", retryable = true)
+            else -> TaskResult.failWithoutRetry("Rejected: ${result.failureReason}")
+        }
     }
 }</code></pre>
         
-        <h3>4.2 OrderCommandService 调用</h3>
-        <div class="code-title">OrderCommandService.kt</div>
-        <pre><code class="language-kotlin">@Service
-class OrderCommandService(
-    private val taskScheduler: TaskScheduler,
-    private val orderStateMachineTaskSpec: OrderStateMachineTaskSpec,
-) {
-    fun submitOrderEvent(orderNo: String, event: OrderEvent) {
-        taskScheduler.submit(orderStateMachineTaskSpec, instanceId, OrderEventPayload(orderNo, event))
-    }
-}</code></pre>
+        <h2>六、流程图</h2>
         
-        <h2>五、事务处理</h2>
-        
-        <div class="danger-box">
-            <p><strong>TaskSpec execute() 不加 @Transactional</strong><br><br>使用 TransactionTemplate 手动控制事务边界，避免 Spring AOP 问题和分布式锁死锁。</p>
+        <div class="mermaid">
+sequenceDiagram
+    participant API as REST/Kafka
+    participant OCS as OrderCommandService
+    participant TS as TaskScheduler
+    participant DB as scheduled_tasks
+    participant Task as OrderStateMachineTaskSpec
+    participant SM as StateMachine
+    participant L as Listener
+    
+    API->>OCS: submitOrderEvent()
+    OCS->>TS: submit(taskSpec, payload)
+    TS->>DB: INSERT task
+    Note over DB: 任务持久化
+    
+    loop 异步执行
+        DB->>Task: execute()
+        Task->>Task: acquire lock (ShedLock)
+        alt 锁获取成功
+            Task->>SM: sendEvent()
+            SM->>SM: Action.execute()
+            SM->>L: onStateChanged() [Transaction]
+            L-->>SM: 完成
+            SM-->>Task: StateChangeResult
+            Task->>DB: DELETE task (成功) / UPDATE (失败重试)
+        else 锁获取失败
+            Task->>DB: 保留任务（等待下次执行）
+        end
+    end
         </div>
         
-        <h2>六、最佳实践</h2>
+        <h2>七、监控与调试</h2>
         
-        <div class="success-box">
-            <p>
-                <strong>1. 任务粒度越小越好</strong> - 一个任务处理一个订单的一个事件<br><br>
-                <strong>2. 幂等性设计</strong> - 使用 scheduleIfNotExists()<br><br>
-                <strong>3. 锁 Key 使用 orderNo</strong> - 与状态机 machineId 保持一致<br><br>
-                <strong>4. 区分失败类型</strong> - 业务失败返回 Fail，技术失败返回 Retry
-            </p>
+        <h3>7.1 查看 task 状态</h3>
+        <div class="code-title">SQL 查询</div>
+        <pre><code class="language-sql">-- 查看所有待处理任务
+SELECT task_name, task_instance, consecutive_failures, 
+       scheduled_time, last_failure
+FROM scheduled_tasks
+ORDER BY scheduled_time;
+
+-- 查看失败次数最多的任务
+SELECT task_name, task_instance, consecutive_failures
+FROM scheduled_tasks
+WHERE consecutive_failures > 0
+ORDER BY consecutive_failures DESC;</code></pre>
+        
+        <h3>7.2 日志关键字</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>日志关键字</th>
+                    <th>含义</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>Lock unavailable</code></td>
+                    <td>分布式锁获取失败，会自动重试</td>
+                </tr>
+                <tr>
+                    <td><code>Task {} failed (retryable)</code></td>
+                    <td>技术错误，会重试</td>
+                </tr>
+                <tr>
+                    <td><code>Task {} failed (no retry)</code></td>
+                    <td>业务错误，不会重试</td>
+                </tr>
+                <tr>
+                    <td><code>Task {} exceeded max retries</code></td>
+                    <td>达到最大重试次数，任务被移除</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <div class="info-box">
+            <strong>更多细节请参考</strong>
+            <p>源码：<code>src/main/kotlin/com/example/statemachine/task/</code></p>
+            <p>适配器：<code>src/main/kotlin/com/example/statemachine/task/scheduler/TaskSpecAdapterFactory.kt</code></p>
         </div>
-        
-        <hr style="margin: 40px 0; border: none; border-top: 2px solid #e2e8f0;">
-        <p style="text-align: center; color: #718096; font-size: 0.9em;">文档版本：5.0 | 更新日期：2026-07-19</p>
     </div>
     
-    <script>mermaid.initialize({ startOnLoad: true, theme: 'default' }); Prism.highlightAll();</script>
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            sequence: {
+                useMaxWidth: true,
+                wrap: true
+            }
+        });
+    </script>
 </body>
 </html>
